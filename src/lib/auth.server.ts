@@ -1,16 +1,21 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto"
 import bcrypt from "bcryptjs"
 import type { AuthUser } from "@/lib/auth-types"
+import type { VerificationPurpose } from "@/lib/email.server"
+import { sendVerificationEmail } from "@/lib/email.server"
 import {
   deleteSessionByHash,
   findUserBySessionHash,
+  insertVerificationToken,
   insertSession,
 } from "@/lib/db.server"
+import { getPasswordStrength } from "@/lib/password-strength"
 
 const COOKIE_NAME = "lumy_session"
 const SESSION_DURATION_SECONDS = 60 * 60 * 24 * 30
 const AUTH_WINDOW_MS = 15 * 60 * 1000
 const AUTH_ATTEMPT_LIMIT = 12
+const EMAIL_VERIFICATION_DURATION_SECONDS = 30 * 60
 
 declare global {
   var __lumyAuthAttempts:
@@ -20,7 +25,7 @@ declare global {
 
 export function enforceAuthRateLimit(
   request: Request,
-  action: "login" | "register"
+  action: "login" | "register" | "verify" | "feedback"
 ) {
   const forwarded = request.headers
     .get("x-forwarded-for")
@@ -53,12 +58,18 @@ export function publicUser(user: {
   email: string
   name: string
   createdAt: string
+  role: "user" | "admin"
+  emailVerifiedAt: string | null
+  disabledAt: string | null
 }): AuthUser {
   return {
     id: user.id,
     email: user.email,
     name: user.name,
     createdAt: user.createdAt,
+    role: user.role,
+    emailVerified: Boolean(user.emailVerifiedAt),
+    disabled: Boolean(user.disabledAt),
   }
 }
 
@@ -85,6 +96,12 @@ export function validateAccountInput(input: {
   if (password.length < 10)
     return { error: "Le mot de passe doit contenir au moins 10 caractères." }
   if (passwordBytes > 72) return { error: "Le mot de passe est trop long." }
+  if (!getPasswordStrength(password).secure) {
+    return {
+      error:
+        "Le mot de passe doit combiner plusieurs types de caractères et être plus difficile à deviner.",
+    }
+  }
   return { name, email, password }
 }
 
@@ -106,19 +123,23 @@ function parseCookies(request: Request) {
 }
 
 export function assertSameOrigin(request: Request) {
-  if (request.headers.get("sec-fetch-site") === "cross-site") {
+  const origin = request.headers.get("origin")
+  const requestOrigin = new URL(request.url).origin
+  if (
+    request.headers.get("sec-fetch-site") === "cross-site" ||
+    (origin && origin !== requestOrigin)
+  ) {
     throw new Response("Requête intersite refusée.", { status: 403 })
   }
 }
 
 export async function createAuthSession(userId: string) {
   const token = randomBytes(32).toString("base64url")
-  const expiresAt = new Date(Date.now() + SESSION_DURATION_SECONDS * 1000)
   await insertSession({
     id: randomUUID(),
     tokenHash: hashSessionToken(token),
     userId,
-    expiresAt,
+    expiresInSeconds: SESSION_DURATION_SECONDS,
   })
   return serializeSessionCookie(token, SESSION_DURATION_SECONDS)
 }
@@ -151,6 +172,39 @@ export async function requireRequestUser(request: Request) {
   const user = await getRequestUser(request)
   if (!user) throw new Response("Authentification requise.", { status: 401 })
   return user
+}
+
+export async function requireAdmin(request: Request) {
+  const user = await requireRequestUser(request)
+  if (user.role !== "admin") {
+    throw new Response("Accès administrateur requis.", { status: 403 })
+  }
+  return user
+}
+
+export async function issueEmailVerification(input: {
+  userId: string
+  email: string
+  name: string
+  purpose: VerificationPurpose
+}) {
+  const id = randomUUID()
+  const token = randomBytes(32).toString("base64url")
+  await insertVerificationToken({
+    id,
+    userId: input.userId,
+    tokenHash: hashSessionToken(token),
+    email: input.email,
+    purpose: input.purpose,
+    expiresInSeconds: EMAIL_VERIFICATION_DURATION_SECONDS,
+  })
+  await sendVerificationEmail({
+    email: input.email,
+    name: input.name,
+    token,
+    purpose: input.purpose,
+    idempotencyKey: `lumy-verification/${id}`,
+  })
 }
 
 export async function destroyRequestSession(request: Request) {

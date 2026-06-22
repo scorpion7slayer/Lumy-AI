@@ -4,6 +4,7 @@ import {
   Library,
   LogOut,
   MemoryStick,
+  MessageSquareHeart,
   MessageSquare,
   MoreHorizontal,
   PanelLeftClose,
@@ -13,11 +14,13 @@ import {
   Plus,
   Search,
   Settings,
+  ShieldCheck,
   Trash2,
   UserRound,
 } from "lucide-react"
 import type { Conversation } from "@/lib/chat-types"
 import type { AuthUser } from "@/lib/auth-types"
+import { LumyLogo, PoweredByZyranex } from "@/components/lumy-logo"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog"
@@ -52,6 +55,8 @@ type ChatSidebarProps = {
   onOpenMemory: () => void
   onOpenLibrary: () => void
   onOpenSettings: () => void
+  onOpenFeedback: () => void
+  onOpenAdmin: () => void
   onLogout: () => void
   user: AuthUser
   onCloseMobile?: () => void
@@ -130,6 +135,8 @@ export function ChatSidebar({
   onOpenMemory,
   onOpenLibrary,
   onOpenSettings,
+  onOpenFeedback,
+  onOpenAdmin,
   onLogout,
   user,
   onCloseMobile,
@@ -180,24 +187,20 @@ export function ChatSidebar({
     <>
       <aside className="flex h-full min-h-0 flex-col bg-sidebar text-sidebar-foreground">
         <div className="flex h-[80px] items-center justify-between px-6">
-          <span className="font-editorial text-[34px] leading-none tracking-[-0.04em]">
-            Lumy
-          </span>
-          <div className="flex items-center gap-1">
-            <div className="grid size-9 place-items-center rounded-md bg-primary font-editorial text-lg text-primary-foreground">
-              L
-            </div>
-            {onCloseMobile ? (
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={onCloseMobile}
-                aria-label="Fermer la navigation"
-              >
-                <PanelLeftClose />
-              </Button>
-            ) : null}
+          <div>
+            <LumyLogo className="h-11 w-40" />
+            <PoweredByZyranex />
           </div>
+          {onCloseMobile ? (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={onCloseMobile}
+              aria-label="Fermer la navigation"
+            >
+              <PanelLeftClose />
+            </Button>
+          ) : null}
         </div>
 
         <div className="px-5 pb-3">
@@ -242,6 +245,24 @@ export function ChatSidebar({
             <MemoryStick data-icon="inline-start" />
             Mémoire
           </Button>
+          <Button
+            variant="ghost"
+            className="justify-start"
+            onClick={onOpenFeedback}
+          >
+            <MessageSquareHeart data-icon="inline-start" />
+            Feedback
+          </Button>
+          {user.role === "admin" ? (
+            <Button
+              variant="ghost"
+              className="justify-start"
+              onClick={onOpenAdmin}
+            >
+              <ShieldCheck data-icon="inline-start" />
+              Administration
+            </Button>
+          ) : null}
         </div>
 
         <ScrollArea className="min-h-0 flex-1 px-5">
@@ -372,6 +393,16 @@ export function ChatSidebar({
                   <Library />
                   Bibliothèque
                 </DropdownMenuItem>
+                <DropdownMenuItem onSelect={onOpenFeedback}>
+                  <MessageSquareHeart />
+                  Donner mon avis
+                </DropdownMenuItem>
+                {user.role === "admin" ? (
+                  <DropdownMenuItem onSelect={onOpenAdmin}>
+                    <ShieldCheck />
+                    Administration
+                  </DropdownMenuItem>
+                ) : null}
                 <DropdownMenuItem onSelect={onLogout}>
                   <LogOut />
                   Se déconnecter

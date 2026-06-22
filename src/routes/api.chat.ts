@@ -5,25 +5,38 @@ import type {
   ReflectionLevel,
 } from "@/lib/chat-types"
 import { requireRequestUser } from "@/lib/auth.server"
-import { getTextFileContext } from "@/lib/db.server"
+import { getChatFileContext } from "@/lib/db.server"
 import { buildDuckDuckGoQuery, searchDuckDuckGo } from "@/lib/duckduckgo.server"
 import {
-  availableFreeModelCandidates,
-  recordFreeModelFailure,
+  availableModelCandidates,
+  recordModelFailure,
 } from "@/lib/free-router.server"
-import { LUMY_FREE_ROUTER_ID } from "@/lib/free-router"
+import { isFreeLumyRouter, isLumyRouterId } from "@/lib/free-router"
 import { getModelCatalog } from "@/lib/model-catalog.server"
 import {
   getProviderConfig,
   providerRequestHeaders,
 } from "@/lib/providers.server"
 import { isProviderId } from "@/lib/providers"
+import { attachImagesToLatestUserMessage } from "@/lib/multimodal-chat.server"
+import { bufferUntilModelOutput } from "@/lib/stream-start.server"
 import { decideWebSearch } from "@/lib/web-search-decision.server"
 
 type IncomingMessage = { role: "user" | "assistant"; content: string }
 type IncomingMemory = { id: string; title: string; content: string }
 type RoutedModel = Pick<ChatModel, "id" | "provider" | "reasoningLevels"> & {
   provider: ExternalProviderId
+  contextWindow?: number
+}
+
+const OUTPUT_CONTEXT_RESERVE = 4_096
+const FIRST_OUTPUT_TIMEOUT_MS = 12_000
+const MAX_CHAT_IMAGES = 5
+const MAX_CHAT_IMAGE_BYTES = 20 * 1024 * 1024
+
+function estimateContextTokens(...values: string[]) {
+  const characters = values.reduce((total, value) => total + value.length, 0)
+  return Math.max(1, Math.ceil(characters / 3.8))
 }
 
 function sseHeaders(extra?: Record<string, string>) {
@@ -104,7 +117,7 @@ export const Route = createFileRoute("/api/chat")({
           !isProviderId(body.provider) ||
           typeof body.model !== "string" ||
           body.model.length > 250 ||
-          (body.provider === "lumy" && body.model !== LUMY_FREE_ROUTER_ID) ||
+          (body.provider === "lumy" && !isLumyRouterId(body.model)) ||
           !messages
         ) {
           return Response.json(
@@ -114,6 +127,8 @@ export const Route = createFileRoute("/api/chat")({
         }
 
         const requestedProvider = body.provider
+        const freeOnly =
+          requestedProvider === "lumy" && isFreeLumyRouter(body.model)
 
         const memories = Array.isArray(body.memories)
           ? body.memories
@@ -152,13 +167,40 @@ export const Route = createFileRoute("/api/chat")({
           .filter(Boolean)
         const webQuery = buildDuckDuckGoQuery(userQuestions)
         const latestQuestion = userQuestions.at(-1) ?? ""
-        const fileContextPromise = getTextFileContext(user.id, fileIds)
+        const fileContext = await getChatFileContext(user.id, fileIds)
+        const imageBytes = fileContext.images.reduce(
+          (total, image) => total + image.content.byteLength,
+          0
+        )
+        if (
+          fileContext.images.length > MAX_CHAT_IMAGES ||
+          imageBytes > MAX_CHAT_IMAGE_BYTES
+        ) {
+          return Response.json(
+            {
+              error:
+                "Joignez au maximum 5 images totalisant 20 Mo pour une requête.",
+            },
+            { status: 413 }
+          )
+        }
+        const hasImages = fileContext.images.length > 0
         let routedModels: RoutedModel[]
         if (requestedProvider === "lumy") {
           const catalog = await getModelCatalog()
-          routedModels = availableFreeModelCandidates(
+          const estimatedInputTokens = estimateContextTokens(
+            ...messages.map((message) => message.content),
+            memoryContext
+          )
+          routedModels = availableModelCandidates(
             catalog.models,
-            latestQuestion
+            latestQuestion,
+            {
+              freeOnly,
+              requiredContextTokens:
+                estimatedInputTokens + OUTPUT_CONTEXT_RESERVE,
+              requiresImage: hasImages,
+            }
           )
         } else {
           const providerConfig = getProviderConfig(requestedProvider)
@@ -180,8 +222,11 @@ export const Route = createFileRoute("/api/chat")({
         if (!firstRoutedModel) {
           return Response.json(
             {
-              error:
-                "Aucun modèle gratuit n’est disponible pour le moment. Réessayez plus tard ou choisissez un modèle précis.",
+              error: hasImages
+                ? "Aucun modèle multimodal capable de lire les images n’est disponible pour le moment."
+                : freeOnly
+                  ? "Aucun modèle gratuit n’est disponible pour le moment. Réessayez plus tard ou choisissez un modèle précis."
+                  : "Aucun modèle compatible n’est disponible pour le moment. Réessayez plus tard ou choisissez un modèle précis.",
             },
             { status: 503 }
           )
@@ -199,12 +244,9 @@ export const Route = createFileRoute("/api/chat")({
                 signal: request.signal,
               })
             : { search: false as const, query: "", source: "rule" as const }
-        const [fileContext, webResults] = await Promise.all([
-          fileContextPromise,
-          webDecision.search
-            ? searchDuckDuckGo(webDecision.query || webQuery)
-            : Promise.resolve([]),
-        ])
+        const webResults = await (webDecision.search
+          ? searchDuckDuckGo(webDecision.query || webQuery)
+          : Promise.resolve([]))
         const webContext = webResults
           .map(
             (result, index) =>
@@ -225,15 +267,30 @@ export const Route = createFileRoute("/api/chat")({
           memoryContext
             ? `Mémoires utilisateur actives :\n${memoryContext}\n\nUtilise uniquement les mémoires réellement pertinentes. Si ta réponse utilise au moins une information issue d’une mémoire, ajoute tout à la fin, sans l’expliquer, le marqueur [[LUMY_MEMORY:id1,id2]] avec uniquement les identifiants utilisés. Si aucune mémoire n’est utilisée, ajoute [[LUMY_MEMORY:none]]. Ce marqueur est un protocole interne invisible : ne le cite jamais dans la réponse.`
             : "",
-          fileContext.length
-            ? `Documents joints :\n${fileContext.map((file) => `--- ${file.name} ---\n${file.content}`).join("\n\n")}`
+          fileContext.documents.length
+            ? `Documents joints :\n${fileContext.documents.map((file) => `--- ${file.name} ---\n${file.content}`).join("\n\n")}`
             : "",
         ]
           .filter(Boolean)
           .join("\n\n")
 
-        let upstream: Response | null = null
+        if (requestedProvider === "lumy") {
+          const requiredContextTokens =
+            estimateContextTokens(
+              systemMessage,
+              ...messages.map((message) => message.content)
+            ) + OUTPUT_CONTEXT_RESERVE
+          const fittingModels = routedModels.filter(
+            (model) =>
+              typeof model.contextWindow !== "number" ||
+              model.contextWindow >= requiredContextTokens
+          )
+          if (fittingModels.length) routedModels = fittingModels
+        }
+
+        let upstreamBody: ReadableStream<Uint8Array> | null = null
         let routedModel: RoutedModel | null = null
+        let firstOutputTimeMs: number | null = null
         let lastStatus = 502
         let lastDetail = ""
         const blockedProviders = new Set<ExternalProviderId>()
@@ -243,10 +300,27 @@ export const Route = createFileRoute("/api/chat")({
           if (blockedProviders.has(candidate.provider)) continue
           attempts += 1
           const providerConfig = getProviderConfig(candidate.provider)
+          const attemptStartedAt = performance.now()
+          const timeoutController =
+            requestedProvider === "lumy" ? new AbortController() : null
+          const timeoutId = timeoutController
+            ? setTimeout(
+                () =>
+                  timeoutController.abort(
+                    new DOMException(
+                      "Le modèle a dépassé le délai avant le premier token.",
+                      "TimeoutError"
+                    )
+                  ),
+                FIRST_OUTPUT_TIMEOUT_MS
+              )
+            : null
           try {
             const response = await fetch(providerConfig.chatEndpoint, {
               method: "POST",
-              signal: request.signal,
+              signal: timeoutController
+                ? AbortSignal.any([request.signal, timeoutController.signal])
+                : request.signal,
               headers: {
                 Authorization: `Bearer ${providerConfig.apiKey}`,
                 "Content-Type": "application/json",
@@ -257,7 +331,10 @@ export const Route = createFileRoute("/api/chat")({
                 stream: true,
                 messages: [
                   { role: "system", content: systemMessage },
-                  ...messages,
+                  ...attachImagesToLatestUserMessage(
+                    messages,
+                    fileContext.images
+                  ),
                 ],
                 ...(reasoningEnabled &&
                 candidate.provider !== "nvidia" &&
@@ -273,14 +350,21 @@ export const Route = createFileRoute("/api/chat")({
               }),
             })
             if (response.ok && response.body) {
-              upstream = response
+              upstreamBody =
+                requestedProvider === "lumy"
+                  ? await bufferUntilModelOutput(response.body)
+                  : response.body
+              firstOutputTimeMs =
+                requestedProvider === "lumy"
+                  ? Math.max(0, performance.now() - attemptStartedAt)
+                  : null
               routedModel = candidate
               break
             }
-            lastStatus = response.status || 502
+            lastStatus = response.ok ? 502 : response.status || 502
             lastDetail = await response.text()
             if (requestedProvider !== "lumy") break
-            recordFreeModelFailure(
+            recordModelFailure(
               candidate,
               lastStatus,
               response.headers.get("retry-after")
@@ -288,32 +372,53 @@ export const Route = createFileRoute("/api/chat")({
             if (lastStatus === 429) blockedProviders.add(candidate.provider)
           } catch (error) {
             if (request.signal.aborted) throw error
-            lastStatus = 502
-            lastDetail = "Connexion au fournisseur interrompue."
+            const timedOut = timeoutController?.signal.aborted === true
+            lastStatus = timedOut ? 504 : 502
+            lastDetail = timedOut
+              ? "Le modèle n’a produit aucun token dans le délai imparti."
+              : "Connexion au fournisseur interrompue."
             if (requestedProvider !== "lumy") break
-            recordFreeModelFailure(candidate, lastStatus, null)
+            recordModelFailure(candidate, lastStatus, null)
+          } finally {
+            if (timeoutId) clearTimeout(timeoutId)
           }
         }
 
-        if (!upstream?.body || !routedModel) {
+        if (!upstreamBody || !routedModel) {
           return Response.json(
             {
               error:
                 requestedProvider === "lumy"
-                  ? "Tous les modèles gratuits sont temporairement indisponibles. Lumy réessaiera automatiquement lors du prochain message."
-                  : "Le fournisseur a refusé la requête.",
+                  ? freeOnly
+                    ? "Tous les modèles gratuits sont temporairement indisponibles. Lumy réessaiera automatiquement lors du prochain message."
+                    : "Tous les modèles compatibles sont temporairement indisponibles. Lumy réessaiera automatiquement lors du prochain message."
+                  : hasImages
+                    ? "Ce modèle n’a pas pu traiter l’image jointe. Choisissez un modèle multimodal puis réessayez."
+                    : "Le fournisseur a refusé la requête.",
               detail: lastDetail,
             },
             { status: lastStatus }
           )
         }
 
-        return new Response(upstream.body, {
+        return new Response(upstreamBody, {
           status: 200,
           headers: sseHeaders({
             "X-Lumy-Provider": routedModel.provider,
             "X-Lumy-Model": routedModel.id,
+            ...(routedModel.contextWindow
+              ? {
+                  "X-Lumy-Context-Window": String(routedModel.contextWindow),
+                }
+              : {}),
             "X-Lumy-Fallbacks": String(Math.max(0, attempts - 1)),
+            ...(firstOutputTimeMs !== null
+              ? {
+                  "X-Lumy-First-Output-Ms": String(
+                    Math.round(firstOutputTimeMs)
+                  ),
+                }
+              : {}),
             "X-Lumy-Web-Search": webDecision.search ? "used" : "skipped",
           }),
         })

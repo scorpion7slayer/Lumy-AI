@@ -1,11 +1,12 @@
 import type { ChatModel, ExternalProviderId } from "@/lib/chat-types"
-import { rankFreeModels } from "@/lib/free-router"
+import { rankModels } from "@/lib/free-router"
 
 const modelCooldowns = new Map<string, number>()
 const providerCooldowns = new Map<ExternalProviderId, number>()
 
 type RoutableModel = Pick<ChatModel, "id" | "provider"> & {
   provider: ExternalProviderId
+  contextWindow?: number
 }
 
 function modelKey(model: RoutableModel) {
@@ -29,20 +30,31 @@ function pruneExpired(now: number) {
   }
 }
 
-export function availableFreeModelCandidates(
+export function availableModelCandidates(
   models: ChatModel[],
   prompt: string,
-  now = Date.now()
+  {
+    freeOnly,
+    requiredContextTokens = 0,
+    requiresImage = false,
+    now = Date.now(),
+  }: {
+    freeOnly: boolean
+    requiredContextTokens?: number
+    requiresImage?: boolean
+    now?: number
+  }
 ) {
   pruneExpired(now)
-  return rankFreeModels(models, prompt).filter(
+  return rankModels(models, prompt, requiredContextTokens, freeOnly).filter(
     (model) =>
+      (!requiresImage || model.inputModalities?.includes("image")) &&
       !modelCooldowns.has(modelKey(model)) &&
       !providerCooldowns.has(model.provider)
   )
 }
 
-export function recordFreeModelFailure(
+export function recordModelFailure(
   model: RoutableModel,
   status: number,
   retryAfter: string | null,

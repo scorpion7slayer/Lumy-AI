@@ -11,6 +11,8 @@ dist-ssr
 .vinxi
 __unconfig*
 todos.json
+scirpts/ 
+database/
 
 # typescript
 *.tsbuildinfo

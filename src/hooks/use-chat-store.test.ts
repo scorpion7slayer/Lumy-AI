@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   createEmptyChatState,
+  conversationHistoryForRequest,
   migrateLegacyChatState,
   normalizeChatState,
   normalizeReflection,
@@ -134,5 +135,43 @@ describe("initial chat state", () => {
       extractReasoningText([{ type: "reasoning.text", text: "Étape 1" }])
     ).toBe("Étape 1")
     expect(extractReasoningText({ data: "opaque-signature" })).toBe("")
+  })
+
+  it("sends the complete successful history after changing models", () => {
+    expect(
+      conversationHistoryForRequest([
+        {
+          id: "first-user",
+          role: "user",
+          content: "Je m’appelle Théo.",
+          createdAt: "2026-06-22T00:00:00.000Z",
+        },
+        {
+          id: "first-model",
+          role: "assistant",
+          content: "Enchanté Théo.",
+          createdAt: "2026-06-22T00:00:01.000Z",
+          modelId: "provider/old-model",
+        },
+        {
+          id: "failed-model",
+          role: "assistant",
+          content: "Impossible de joindre le modèle.",
+          createdAt: "2026-06-22T00:00:02.000Z",
+          modelId: "provider/failed-model",
+          error: true,
+        },
+        {
+          id: "second-user",
+          role: "user",
+          content: "Comment je m’appelle ?",
+          createdAt: "2026-06-22T00:00:03.000Z",
+        },
+      ])
+    ).toEqual([
+      { role: "user", content: "Je m’appelle Théo." },
+      { role: "assistant", content: "Enchanté Théo." },
+      { role: "user", content: "Comment je m’appelle ?" },
+    ])
   })
 })

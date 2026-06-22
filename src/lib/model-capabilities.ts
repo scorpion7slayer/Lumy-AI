@@ -27,7 +27,22 @@ export function reasoningLevelsForModel(
   return fixed ? ["standard"] : []
 }
 
-export function producesTextOnly(model: ModelCapabilitiesInput) {
+export function producesText(model: ModelCapabilitiesInput) {
+  const inputs = model.architecture?.input_modalities?.map((value) =>
+    value.toLocaleLowerCase("en")
+  )
+  if (inputs?.length && !inputs.includes("text")) return false
+
+  const inputFromModality = model.architecture?.modality
+    ?.split("->")
+    .at(0)
+    ?.toLocaleLowerCase("en")
+  if (
+    inputFromModality &&
+    !inputFromModality.split(/[+,/]/).some((input) => input.trim() === "text")
+  )
+    return false
+
   const outputs = model.architecture?.output_modalities?.map((value) =>
     value.toLocaleLowerCase("en")
   )
@@ -41,12 +56,20 @@ export function producesTextOnly(model: ModelCapabilitiesInput) {
     ?.split("->")
     .at(-1)
     ?.toLocaleLowerCase("en")
-  if (outputFromModality) return outputFromModality === "text"
+  if (outputFromModality) {
+    const modalities = outputFromModality
+      .split(/[+,/]/)
+      .map((output) => output.trim())
+    return (
+      modalities.includes("text") &&
+      modalities.every((output) => output === "text")
+    )
+  }
 
   const identity = `${model.id ?? ""} ${model.name ?? ""}`.toLocaleLowerCase(
     "en"
   )
-  return !/(image[- ]generation|text[- ]to[- ]image|tts|text[- ]to[- ]speech|audio[- ]generation|voice[- ]generation|embedding|\bembed|rerank|retrieval|(?:^|[/.-])bge-|vision|multimodal|(?:^|[/_.-])vl(?:$|[/_.-])|detector|content[- ]safety|safety[- ]guard|nemoguard|llama[- ]guard|reward|(?:^|[/_.-])parse(?:$|[/_.-])|\bpii\b|nvclip|\bclip\b|deplot|fuyu|kosmos|neva|(?:^|[/_.-])vila(?:$|[/_.-])|diffusion|ising[- ]calibration|cosmos[- ]reason|dall-e|stable[- ]diffusion|sdxl|flux(?:[/:.-]|$)|imagen|recraft|ideogram|midjourney|sora|veo|whisper|elevenlabs)/.test(
+  return !/(image[- ]generation|text[- ]to[- ]image|tts|text[- ]to[- ]speech|audio[- ]generation|voice[- ]generation|embedding|\bembed|rerank|retrieval|(?:^|[/.-])bge-|detector|content[- ]safety|safety[- ]guard|nemoguard|llama[- ]guard|reward|(?:^|[/_.-])parse(?:$|[/_.-])|\bpii\b|nvclip|\bclip\b|deplot|fuyu|kosmos|neva|(?:^|[/_.-])vila(?:$|[/_.-])|cosmos[- ]reason|dall-e|stable[- ]diffusion|sdxl|flux(?:[/:.-]|$)|imagen|recraft|ideogram|midjourney|sora|veo|whisper|elevenlabs)/.test(
     identity
   )
 }

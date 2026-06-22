@@ -3,4 +3,7 @@ export type AuthUser = {
   email: string
   name: string
   createdAt: string
+  role: "user" | "admin"
+  emailVerified: boolean
+  disabled: boolean
 }

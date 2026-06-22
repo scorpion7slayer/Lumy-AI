@@ -2,6 +2,11 @@ import { randomUUID } from "node:crypto"
 import { createFileRoute } from "@tanstack/react-router"
 import { assertSameOrigin, requireRequestUser } from "@/lib/auth.server"
 import { insertFile } from "@/lib/db.server"
+import {
+  convertImageToWebp,
+  ImageUploadError,
+  looksLikeImageUpload,
+} from "@/lib/image-upload.server"
 import type { SessionFile } from "@/lib/chat-types"
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024
@@ -49,7 +54,9 @@ export const Route = createFileRoute("/api/files")({
               { status: 413 }
             )
           }
+          const isImage = looksLikeImageUpload(file)
           if (
+            !isImage &&
             !file.type.startsWith("text/") &&
             !ACCEPTED_TYPES.has(file.type)
           ) {
@@ -60,23 +67,48 @@ export const Route = createFileRoute("/api/files")({
           }
 
           const id = randomUUID()
-          const name =
+          const sanitizedName =
             file.name.replace(/[\\/]/g, "-").slice(0, 255) || "document"
+          let stored: {
+            name: string
+            type: string
+            size: number
+            content: Buffer
+          } = {
+            name: sanitizedName,
+            type: file.type || "application/octet-stream",
+            size: file.size,
+            content: Buffer.from(await file.arrayBuffer()),
+          }
+          if (isImage) {
+            try {
+              stored = await convertImageToWebp(
+                stored.content,
+                sanitizedName,
+                MAX_FILE_SIZE
+              )
+            } catch (error) {
+              if (error instanceof ImageUploadError) {
+                return Response.json(
+                  { error: error.message },
+                  { status: error.status }
+                )
+              }
+              throw error
+            }
+          }
           await insertFile({
             id,
             userId: user.id,
             conversationId,
-            name,
-            type: file.type || "application/octet-stream",
-            size: file.size,
-            content: Buffer.from(await file.arrayBuffer()),
+            ...stored,
           })
           saved.push({
             id,
             conversationId,
-            name,
-            size: file.size,
-            type: file.type,
+            name: stored.name,
+            size: stored.size,
+            type: stored.type,
           })
         }
 

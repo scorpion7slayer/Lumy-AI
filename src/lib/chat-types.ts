@@ -15,6 +15,7 @@ export type ChatModel = {
   isFree: boolean
   recommended?: boolean
   reasoningLevels: ReflectionLevel[]
+  inputModalities?: string[]
 }
 
 export type ChatRole = "user" | "assistant"
@@ -32,7 +33,11 @@ export type ChatMessage = {
   usedMemoryIds?: string[]
   routedProvider?: ExternalProviderId
   routedModelId?: string
+  routedContextWindow?: number
   fallbackCount?: number
+  firstTokenTimeMs?: number
+  responseTimeMs?: number
+  reasoningTimeMs?: number
 }
 
 export type Conversation = {

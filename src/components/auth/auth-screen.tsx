@@ -5,9 +5,13 @@ import {
   Eye,
   EyeOff,
   LockKeyhole,
+  MailCheck,
+  RefreshCw,
   Sparkles,
 } from "lucide-react"
 import type { AuthUser } from "@/lib/auth-types"
+import { LumyLogo, PoweredByZyranex } from "@/components/lumy-logo"
+import { PasswordStrengthIndicator } from "@/components/auth/password-strength-indicator"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
@@ -32,10 +36,22 @@ async function authRequest(path: string, body: Record<string, string>) {
   const payload = (await response.json().catch(() => ({}))) as {
     user?: AuthUser
     error?: string
+    code?: string
+    email?: string
+    verificationRequired?: boolean
   }
-  if (!response.ok || !payload.user)
-    throw new Error(payload.error ?? "Authentification impossible.")
-  return payload.user
+  if (!response.ok) {
+    const error = new Error(
+      payload.error ?? "Authentification impossible."
+    ) as Error & {
+      code?: string
+      email?: string
+    }
+    error.code = payload.code
+    error.email = payload.email
+    throw error
+  }
+  return payload
 }
 
 function PasswordField({
@@ -85,29 +101,46 @@ function PasswordField({
 
 export function AuthScreen({
   onAuthenticated,
+  initialMode = "login",
 }: {
   onAuthenticated: (user: AuthUser) => void
+  initialMode?: "login" | "register"
 }) {
-  const [mode, setMode] = useState("login")
+  const [mode, setMode] = useState<"login" | "register">(initialMode)
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
+  const [notice, setNotice] = useState("")
+  const [verificationEmail, setVerificationEmail] = useState("")
   const [pending, setPending] = useState(false)
+  const [resending, setResending] = useState(false)
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault()
     setError("")
+    setNotice("")
     setPending(true)
     try {
       const path =
         mode === "register" ? "/api/auth/register" : "/api/auth/login"
-      const user = await authRequest(path, { name, email, password })
-      onAuthenticated(user)
+      const payload = await authRequest(path, { name, email, password })
+      if (payload.user) {
+        onAuthenticated(payload.user)
+      } else if (payload.verificationRequired) {
+        setVerificationEmail(payload.email ?? email)
+        setNotice(
+          "Un lien de vérification vient d’être envoyé. Ouvrez-le avant de vous connecter."
+        )
+      }
     } catch (submitError) {
+      const authError = submitError as Error & { code?: string; email?: string }
+      if (authError.code === "EMAIL_UNVERIFIED") {
+        setVerificationEmail(authError.email ?? email)
+      }
       setError(
-        submitError instanceof Error
-          ? submitError.message
+        authError instanceof Error
+          ? authError.message
           : "Authentification impossible."
       )
     } finally {
@@ -115,16 +148,37 @@ export function AuthScreen({
     }
   }
 
+  const resendVerification = async () => {
+    if (!verificationEmail) return
+    setResending(true)
+    setError("")
+    try {
+      const response = await fetch("/api/auth/email-verification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: verificationEmail }),
+      })
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string
+        message?: string
+      }
+      if (!response.ok) throw new Error(payload.error ?? "Envoi impossible.")
+      setNotice(payload.message ?? "E-mail de vérification renvoyé.")
+    } catch (resendError) {
+      setError(
+        resendError instanceof Error ? resendError.message : "Envoi impossible."
+      )
+    } finally {
+      setResending(false)
+    }
+  }
+
   return (
     <main className="grid min-h-svh bg-background lg:grid-cols-[minmax(0,1fr)_560px]">
       <section className="relative hidden overflow-hidden border-r border-border bg-sidebar p-14 lg:flex lg:flex-col lg:justify-between">
-        <div className="flex items-center gap-3">
-          <div className="grid size-11 place-items-center rounded-lg bg-primary font-editorial text-xl text-primary-foreground">
-            L
-          </div>
-          <span className="font-editorial text-4xl tracking-[-0.04em]">
-            Lumy
-          </span>
+        <div>
+          <LumyLogo className="h-14 w-48" />
+          <PoweredByZyranex className="mt-1" />
         </div>
         <div className="max-w-xl">
           <Sparkles className="mb-7 size-8 text-primary" />
@@ -159,11 +213,9 @@ export function AuthScreen({
       <section className="flex items-center justify-center p-6 sm:p-10">
         <Card className="w-full max-w-md border-border/80 shadow-[0_18px_55px_rgba(49,45,36,0.08)]">
           <CardHeader>
-            <div className="mb-4 flex items-center gap-3 lg:hidden">
-              <div className="grid size-9 place-items-center rounded-lg bg-primary font-editorial text-primary-foreground">
-                L
-              </div>
-              <span className="font-editorial text-3xl">Lumy</span>
+            <div className="mb-4 lg:hidden">
+              <LumyLogo className="h-12 w-40" />
+              <PoweredByZyranex className="mt-1" />
             </div>
             <CardTitle className="font-editorial text-3xl">Bienvenue</CardTitle>
             <CardDescription>
@@ -174,8 +226,10 @@ export function AuthScreen({
             <Tabs
               value={mode}
               onValueChange={(value) => {
-                setMode(value)
+                setMode(value as "login" | "register")
                 setError("")
+                setNotice("")
+                setVerificationEmail("")
               }}
             >
               <TabsList className="mb-6 w-full">
@@ -217,15 +271,35 @@ export function AuthScreen({
                     }
                   />
                   {mode === "register" ? (
-                    <p className="text-xs leading-5 text-muted-foreground">
-                      Utilisez au moins 10 caractères.
-                    </p>
+                    <PasswordStrengthIndicator password={password} />
+                  ) : null}
+                  {notice ? (
+                    <Alert>
+                      <MailCheck />
+                      <AlertDescription>{notice}</AlertDescription>
+                    </Alert>
                   ) : null}
                   {error ? (
                     <Alert variant="destructive">
                       <LockKeyhole />
                       <AlertDescription>{error}</AlertDescription>
                     </Alert>
+                  ) : null}
+                  {verificationEmail ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full"
+                      onClick={resendVerification}
+                      disabled={resending}
+                    >
+                      {resending ? (
+                        <Spinner data-icon="inline-start" />
+                      ) : (
+                        <RefreshCw data-icon="inline-start" />
+                      )}
+                      Renvoyer l’e-mail de vérification
+                    </Button>
                   ) : null}
                   <Button
                     type="submit"

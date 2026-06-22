@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { lazy, Suspense, useCallback, useEffect, useState } from "react"
 import {
   BookOpen,
   Library,
@@ -10,6 +10,7 @@ import {
   Plus,
   Search,
   Settings,
+  ShieldCheck,
   Sparkles,
   Trash2,
 } from "lucide-react"
@@ -18,6 +19,7 @@ import type { AuthUser } from "@/lib/auth-types"
 import { AccountSettingsDialog } from "@/components/auth/account-settings-dialog"
 import { ChatSidebar } from "@/components/chat/chat-sidebar"
 import { ConversationView } from "@/components/chat/conversation-view"
+import { FeedbackDialog } from "@/components/chat/feedback-dialog"
 import { LibraryDialog } from "@/components/chat/library-dialog"
 import { ModelPicker } from "@/components/chat/model-picker"
 import { SessionPanel } from "@/components/chat/session-panel"
@@ -48,6 +50,8 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { estimateTokens, useChatStore } from "@/hooks/use-chat-store"
+
+const AdminDialog = lazy(() => import("@/components/admin/admin-dialog"))
 
 function MemoryDialog({
   open,
@@ -258,8 +262,21 @@ export function ChatApp({
   const [memoryOpen, setMemoryOpen] = useState(false)
   const [libraryOpen, setLibraryOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [feedbackOpen, setFeedbackOpen] = useState(false)
+  const [adminOpen, setAdminOpen] = useState(false)
   const [modelsReady, setModelsReady] = useState(false)
   const handleModelsDetected = useCallback(() => setModelsReady(true), [])
+  const latestRoutedContextWindow = chat.activeConversation?.messages
+    .slice()
+    .reverse()
+    .find((message) => message.routedContextWindow)?.routedContextWindow
+  const sessionModel =
+    chat.state.selectedModel?.provider === "lumy" && latestRoutedContextWindow
+      ? {
+          ...chat.state.selectedModel,
+          contextWindow: latestRoutedContextWindow,
+        }
+      : chat.state.selectedModel
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -303,6 +320,8 @@ export function ChatApp({
       onOpenMemory={() => setMemoryOpen(true)}
       onOpenLibrary={() => setLibraryOpen(true)}
       onOpenSettings={() => setSettingsOpen(true)}
+      onOpenFeedback={() => setFeedbackOpen(true)}
+      onOpenAdmin={() => setAdminOpen(true)}
       onLogout={logout}
       user={user}
       onCloseMobile={leftOpen ? () => setLeftOpen(false) : undefined}
@@ -311,7 +330,7 @@ export function ChatApp({
 
   const session = (
     <SessionPanel
-      model={modelsReady ? chat.state.selectedModel : null}
+      model={modelsReady ? sessionModel : null}
       contextTokens={estimateTokens(
         chat.activeConversation?.messages ?? [],
         chat.state.memories
@@ -479,6 +498,17 @@ export function ChatApp({
                 <Settings />
                 Paramètres
               </CommandItem>
+              {user.role === "admin" ? (
+                <CommandItem
+                  onSelect={() => {
+                    setAdminOpen(true)
+                    setCommandOpen(false)
+                  }}
+                >
+                  <ShieldCheck />
+                  Administration
+                </CommandItem>
+              ) : null}
             </CommandGroup>
             <CommandGroup heading="Discussions">
               {chat.state.conversations.map((conversation) => (
@@ -524,6 +554,16 @@ export function ChatApp({
         onUserChange={onUserChange}
         onSignedOut={onSignedOut}
       />
+      <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
+      {user.role === "admin" ? (
+        <Suspense fallback={null}>
+          <AdminDialog
+            open={adminOpen}
+            onOpenChange={setAdminOpen}
+            currentUserId={user.id}
+          />
+        </Suspense>
+      ) : null}
     </div>
   )
 }

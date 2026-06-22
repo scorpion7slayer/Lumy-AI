@@ -2,14 +2,14 @@ import { randomUUID } from "node:crypto"
 import { createFileRoute } from "@tanstack/react-router"
 import {
   assertSameOrigin,
-  createAuthSession,
   enforceAuthRateLimit,
   hashPassword,
   isDuplicateEntry,
-  publicUser,
+  issueEmailVerification,
   validateAccountInput,
 } from "@/lib/auth.server"
-import { insertUser } from "@/lib/db.server"
+import { isEmailDeliveryConfigured } from "@/lib/email.server"
+import { deleteUnverifiedUser, insertUser } from "@/lib/db.server"
 
 export const Route = createFileRoute("/api/auth/register")({
   server: {
@@ -30,6 +30,15 @@ export const Route = createFileRoute("/api/auth/register")({
         const validated = validateAccountInput(body)
         if ("error" in validated)
           return Response.json(validated, { status: 400 })
+        if (!isEmailDeliveryConfigured()) {
+          return Response.json(
+            {
+              error:
+                "La vérification d’e-mail n’est pas configurée. Contactez l’administrateur.",
+            },
+            { status: 503 }
+          )
+        }
 
         const user = {
           id: randomUUID(),
@@ -37,25 +46,37 @@ export const Route = createFileRoute("/api/auth/register")({
           email: validated.email,
           passwordHash: await hashPassword(validated.password),
           createdAt: new Date().toISOString(),
+          role: "user" as const,
         }
 
+        let inserted = false
         try {
           await insertUser(user)
-          const cookie = await createAuthSession(user.id)
+          inserted = true
+          await issueEmailVerification({
+            userId: user.id,
+            email: user.email,
+            name: user.name,
+            purpose: "verify_email",
+          })
           return Response.json(
-            { user: publicUser(user) },
-            { status: 201, headers: { "Set-Cookie": cookie } }
+            { verificationRequired: true, email: user.email },
+            { status: 201 }
           )
         } catch (error) {
+          if (inserted) await deleteUnverifiedUser(user.id)
           if (isDuplicateEntry(error)) {
             return Response.json(
               { error: "Un compte utilise déjà cette adresse e-mail." },
               { status: 409 }
             )
           }
-          console.error("[Lumy] Création de compte impossible", error)
+          console.error("[Lumy] Vérification du compte impossible", error)
           return Response.json(
-            { error: "Création de compte impossible." },
+            {
+              error:
+                "L’e-mail de vérification n’a pas pu être envoyé. Réessayez plus tard.",
+            },
             { status: 500 }
           )
         }

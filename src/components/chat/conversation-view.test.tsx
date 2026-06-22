@@ -84,6 +84,27 @@ describe("conversation view", () => {
     expect(composer?.className).not.toContain("absolute inset-x-0 bottom-0")
   })
 
+  it("keeps the expanded composer inside the viewport with a scrollable editor", () => {
+    renderView(baseModel)
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Agrandir le champ de message" })
+    )
+
+    const dialog = screen.getByRole("dialog")
+    const expandedEditor = screen.getByRole("textbox", {
+      name: "Message en plein écran",
+    })
+
+    expect(dialog.className).toContain("h-[calc(100svh-2rem)]")
+    expect(dialog.className).toContain("min-h-0")
+    expect(dialog.className).toContain("overflow-hidden")
+    expect(expandedEditor.className).toContain("field-sizing-fixed")
+    expect(expandedEditor.className).toContain("h-full")
+    expect(expandedEditor.className).toContain("overflow-y-auto")
+    expect(expandedEditor.className).not.toContain("resize-y")
+  })
+
   it("shows fixed and unavailable reflection states per model", () => {
     const { rerender } = renderView({
       ...baseModel,
@@ -130,6 +151,29 @@ describe("conversation view", () => {
       ],
     })
     expect(screen.queryByText("NVIDIA NIM")).not.toBeNull()
+  })
+
+  it("affiche les temps de réponse, de premier contenu et de réflexion", () => {
+    renderView(baseModel, {
+      ...conversation,
+      messages: [
+        {
+          id: "timed-answer",
+          role: "assistant",
+          content: "Réponse mesurée.",
+          reasoning: "Analyse terminée.",
+          createdAt: "2026-06-20T00:00:00.000Z",
+          firstTokenTimeMs: 820,
+          reasoningTimeMs: 1_450,
+          responseTimeMs: 3_240,
+        },
+      ],
+    })
+
+    expect(screen.getByLabelText("Temps de génération").textContent).toBe(
+      "Réponse en 3,2 s · Premier contenu en 820 ms"
+    )
+    expect(screen.queryByText("1,5 s")).not.toBeNull()
   })
 
   it("shows which memory was used in an assistant response", async () => {

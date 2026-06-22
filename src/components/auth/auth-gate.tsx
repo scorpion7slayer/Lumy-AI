@@ -1,14 +1,19 @@
 import { useEffect, useState } from "react"
 import type { AuthUser } from "@/lib/auth-types"
 import { AuthScreen } from "@/components/auth/auth-screen"
+import { VerifyEmailScreen } from "@/components/auth/verify-email-screen"
 import { ChatApp } from "@/components/chat/chat-app"
 import { Skeleton } from "@/components/ui/skeleton"
 
 export function AuthGate() {
+  const [verificationToken, setVerificationToken] = useState("")
   const [user, setUser] = useState<AuthUser | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    setVerificationToken(
+      new URLSearchParams(window.location.search).get("verify")?.trim() ?? ""
+    )
     let active = true
     fetch("/api/auth/session", { headers: { Accept: "application/json" } })
       .then(async (response) => {
@@ -28,6 +33,8 @@ export function AuthGate() {
       active = false
     }
   }, [])
+
+  if (verificationToken) return <VerifyEmailScreen token={verificationToken} />
 
   if (loading) {
     return (

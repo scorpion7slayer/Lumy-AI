@@ -2,10 +2,10 @@ import { createFileRoute } from "@tanstack/react-router"
 import type { ExternalProviderId, MemoryItem } from "@/lib/chat-types"
 import { requireRequestUser } from "@/lib/auth.server"
 import {
-  availableFreeModelCandidates,
-  recordFreeModelFailure,
+  availableModelCandidates,
+  recordModelFailure,
 } from "@/lib/free-router.server"
-import { LUMY_FREE_ROUTER_ID } from "@/lib/free-router"
+import { isFreeLumyRouter, isLumyRouterId } from "@/lib/free-router"
 import { parseMemoryCandidates } from "@/lib/memory-candidates"
 import { getModelCatalog } from "@/lib/model-catalog.server"
 import {
@@ -58,7 +58,7 @@ export const Route = createFileRoute("/api/memory/extract")({
           !isProviderId(body.provider) ||
           typeof body.model !== "string" ||
           body.model.length > 250 ||
-          (body.provider === "lumy" && body.model !== LUMY_FREE_ROUTER_ID) ||
+          (body.provider === "lumy" && !isLumyRouterId(body.model)) ||
           !Array.isArray(body.userMessages) ||
           !Array.isArray(body.memories)
         ) {
@@ -85,9 +85,10 @@ export const Route = createFileRoute("/api/memory/extract")({
         let routedModels: RoutedMemoryModel[]
         if (body.provider === "lumy") {
           const catalog = await getModelCatalog()
-          routedModels = availableFreeModelCandidates(
+          routedModels = availableModelCandidates(
             catalog.models,
-            userMessages.join("\n")
+            userMessages.join("\n"),
+            { freeOnly: isFreeLumyRouter(body.model) }
           )
         } else {
           const providerConfig = getProviderConfig(body.provider)
@@ -149,7 +150,7 @@ Réponds exclusivement avec un objet JSON valide : {"memories":[{"title":"titre 
             })
             if (!upstream.ok) {
               if (body.provider !== "lumy") break
-              recordFreeModelFailure(
+              recordModelFailure(
                 routedModel,
                 upstream.status,
                 upstream.headers.get("retry-after")
@@ -165,7 +166,7 @@ Réponds exclusivement avec un objet JSON valide : {"memories":[{"title":"titre 
             if (content) break
           } catch {
             if (body.provider !== "lumy") break
-            recordFreeModelFailure(routedModel, 502, null)
+            recordModelFailure(routedModel, 502, null)
           }
         }
         if (!content) return Response.json({ memories: [] }, { status: 502 })

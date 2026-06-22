@@ -255,40 +255,6 @@
   color: var(--code-punctuation);
 }
 
-::view-transition-old(root),
-::view-transition-new(root) {
-  animation-duration: 280ms;
-  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-::view-transition-old(root) {
-  animation-name: lumy-theme-out;
-}
-
-::view-transition-new(root) {
-  animation-name: lumy-theme-in;
-}
-
-html.theme-transitioning body {
-  transition:
-    background-color 280ms ease,
-    color 280ms ease;
-}
-
-@keyframes lumy-theme-out {
-  to {
-    opacity: 0;
-    transform: scale(0.995);
-  }
-}
-
-@keyframes lumy-theme-in {
-  from {
-    opacity: 0;
-    transform: scale(1.005);
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

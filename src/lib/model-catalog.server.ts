@@ -4,11 +4,8 @@ import type {
   ProviderId,
 } from "@/lib/chat-types"
 import type { ModelCapabilitiesInput } from "@/lib/model-capabilities"
-import { createLumyRouterModel } from "@/lib/free-router"
-import {
-  producesTextOnly,
-  reasoningLevelsForModel,
-} from "@/lib/model-capabilities"
+import { createLumyRouterModels } from "@/lib/free-router"
+import { producesText, reasoningLevelsForModel } from "@/lib/model-capabilities"
 import {
   configuredProviderConfigs,
   providerLabel,
@@ -22,6 +19,7 @@ type RawModel = ModelCapabilitiesInput & {
   owned_by?: string
   pricing?: { prompt?: string | number; completion?: string | number }
   is_free?: boolean
+  isFree?: boolean
   free?: boolean
 }
 
@@ -46,13 +44,40 @@ function toPricePerMillion(value?: string | number) {
   return price < 0 ? -1 : price * 1_000_000
 }
 
+function inputModalitiesForModel(raw: RawModel) {
+  const declared = raw.architecture?.input_modalities
+    ?.map((value) => value.toLocaleLowerCase("en"))
+    .filter(Boolean)
+  if (declared?.length) return Array.from(new Set(declared))
+
+  const modality = raw.architecture?.modality?.split("->").at(0)
+  if (modality) {
+    const parsed = modality
+      .split(/[+,/]/)
+      .map((value) => value.trim().toLocaleLowerCase("en"))
+      .filter(Boolean)
+    if (parsed.length) return Array.from(new Set(parsed))
+  }
+
+  return /(?:vision|multimodal|omni|(?:^|[/_.-])vl(?:$|[/_.-]))/i.test(
+    `${raw.id ?? ""} ${raw.name ?? ""}`
+  )
+    ? ["text", "image"]
+    : ["text"]
+}
+
 export function normalizeProviderModel(
   raw: RawModel,
   provider: ExternalProviderId
 ): ChatModel | null {
   if (!raw.id) return null
-  const inputPrice = toPricePerMillion(raw.pricing?.prompt)
-  const outputPrice = toPricePerMillion(raw.pricing?.completion)
+  const isNvidiaFreeEndpoint = provider === "nvidia"
+  const inputPrice = isNvidiaFreeEndpoint
+    ? 0
+    : toPricePerMillion(raw.pricing?.prompt)
+  const outputPrice = isNvidiaFreeEndpoint
+    ? 0
+    : toPricePerMillion(raw.pricing?.completion)
   const owner = (raw.owned_by ?? raw.id.split("/")[0]) || "IA"
   return {
     id: raw.id,
@@ -69,12 +94,15 @@ export function normalizeProviderModel(
     inputPrice,
     outputPrice,
     isFree:
+      isNvidiaFreeEndpoint ||
       raw.is_free === true ||
+      raw.isFree === true ||
       raw.free === true ||
       (inputPrice === 0 && outputPrice === 0) ||
       /(?:^|[-/: ])free(?:$|[-/: ])/i.test(`${raw.id} ${raw.name ?? ""}`),
     speed: inputPrice < 0 ? 3 : inputPrice < 0.5 ? 4 : inputPrice < 3 ? 3 : 2,
     reasoningLevels: reasoningLevelsForModel(raw),
+    inputModalities: inputModalitiesForModel(raw),
   }
 }
 
@@ -99,7 +127,7 @@ async function fetchProviderModels(
         ? payload.models
         : []
   return rawModels
-    .filter(producesTextOnly)
+    .filter(producesText)
     .map((model) => normalizeProviderModel(model, provider))
     .filter((model): model is ChatModel => Boolean(model))
 }
@@ -139,10 +167,10 @@ export async function getModelCatalog(): Promise<ModelCatalog> {
     merged.set(`${model.provider}:${model.id}`, model)
   }
   const providerModels = Array.from(merged.values())
-  const lumyModel = createLumyRouterModel(providerModels)
-  const models = lumyModel ? [lumyModel, ...providerModels] : providerModels
+  const lumyModels = createLumyRouterModels(providerModels)
+  const models = [...lumyModels, ...providerModels]
   const providers: ProviderId[] = [
-    ...(lumyModel ? (["lumy"] as const) : []),
+    ...(lumyModels.length ? (["lumy"] as const) : []),
     ...providerConfig
       .filter((provider) =>
         providerModels.some((model) => model.provider === provider.id)

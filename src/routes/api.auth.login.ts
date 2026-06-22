@@ -42,6 +42,22 @@ export const Route = createFileRoute("/api/auth/login")({
             { status: 401 }
           )
         }
+        if (user.disabledAt) {
+          return Response.json(
+            { error: "Ce compte a été désactivé par un administrateur." },
+            { status: 403 }
+          )
+        }
+        if (!user.emailVerifiedAt) {
+          return Response.json(
+            {
+              error: "Vérifiez votre adresse e-mail avant de vous connecter.",
+              code: "EMAIL_UNVERIFIED",
+              email: user.email,
+            },
+            { status: 403 }
+          )
+        }
 
         const cookie = await createAuthSession(user.id)
         return Response.json(

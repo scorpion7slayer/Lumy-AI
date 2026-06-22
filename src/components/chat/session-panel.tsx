@@ -237,7 +237,7 @@ export function SessionPanel({
                   <input
                     type="file"
                     multiple
-                    accept=".txt,.md,.csv,.json,.xml,.pdf,text/*,application/json,application/xml,application/pdf"
+                    accept=".txt,.md,.csv,.json,.xml,.pdf,text/*,application/json,application/xml,application/pdf,image/*,.avif,.heic,.heif"
                     className="sr-only"
                     onChange={(event) => onAddFiles(event.target.files)}
                   />

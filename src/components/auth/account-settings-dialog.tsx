@@ -11,6 +11,7 @@ import {
 import { useTheme } from "next-themes"
 import { toast } from "sonner"
 import type { AuthUser } from "@/lib/auth-types"
+import { PasswordStrengthIndicator } from "@/components/auth/password-strength-indicator"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -92,13 +93,20 @@ export function AccountSettingsDialog({
       const payload = (await response.json().catch(() => ({}))) as {
         user?: AuthUser
         error?: string
+        emailChangePending?: string
       }
       if (!response.ok || !payload.user)
         throw new Error(payload.error ?? "Mise à jour impossible.")
       onUserChange(payload.user)
       setCurrentPassword("")
       setNewPassword("")
-      toast.success("Compte mis à jour")
+      if (payload.emailChangePending) {
+        toast.success(
+          `Un lien de vérification a été envoyé à ${payload.emailChangePending}.`
+        )
+      } else {
+        toast.success("Compte mis à jour")
+      }
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Mise à jour impossible."
@@ -119,36 +127,7 @@ export function AccountSettingsDialog({
 
   const changeTheme = (nextTheme: "light" | "dark" | "system") => {
     if (nextTheme === theme) return
-    const root = document.documentElement
-    const prefersReducedMotion = window.matchMedia(
-      "(prefers-reduced-motion: reduce)"
-    ).matches
-    const startViewTransition = (
-      document as unknown as {
-        startViewTransition?: (callback: () => Promise<void>) => {
-          finished: Promise<void>
-        }
-      }
-    ).startViewTransition?.bind(document)
-    const applyTheme = async () => {
-      setTheme(nextTheme)
-      await new Promise<void>((resolve) => {
-        window.requestAnimationFrame(() =>
-          window.requestAnimationFrame(() => resolve())
-        )
-      })
-    }
-
-    root.classList.add("theme-transitioning")
-    if (!prefersReducedMotion && startViewTransition) {
-      const transition = startViewTransition(applyTheme)
-      void transition.finished.finally(() =>
-        root.classList.remove("theme-transitioning")
-      )
-      return
-    }
-    void applyTheme()
-    window.setTimeout(() => root.classList.remove("theme-transitioning"), 320)
+    setTheme(nextTheme)
   }
 
   const deleteAccount = async (event: React.MouseEvent) => {
@@ -238,6 +217,7 @@ export function AccountSettingsDialog({
               autoComplete="new-password"
               minLength={10}
             />
+            <PasswordStrengthIndicator password={newPassword} />
           </Field>
         </FieldGroup>
         <Separator />

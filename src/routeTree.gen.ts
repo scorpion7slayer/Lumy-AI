@@ -14,14 +14,18 @@ import { Route as ApiStateRouteImport } from './routes/api.state'
 import { Route as ApiProvidersRouteImport } from './routes/api.providers'
 import { Route as ApiModelsRouteImport } from './routes/api.models'
 import { Route as ApiFilesRouteImport } from './routes/api.files'
+import { Route as ApiFeedbackRouteImport } from './routes/api.feedback'
 import { Route as ApiDatabaseRouteImport } from './routes/api.database'
 import { Route as ApiChatRouteImport } from './routes/api.chat'
+import { Route as ApiAdminRouteImport } from './routes/api.admin'
 import { Route as ApiMemoryExtractRouteImport } from './routes/api.memory.extract'
 import { Route as ApiFilesFileIdRouteImport } from './routes/api.files.$fileId'
 import { Route as ApiAuthSessionRouteImport } from './routes/api.auth.session'
 import { Route as ApiAuthRegisterRouteImport } from './routes/api.auth.register'
 import { Route as ApiAuthLoginRouteImport } from './routes/api.auth.login'
+import { Route as ApiAuthEmailVerificationRouteImport } from './routes/api.auth.email-verification'
 import { Route as ApiAuthAccountRouteImport } from './routes/api.auth.account'
+import { Route as ApiAdminFilesFileIdRouteImport } from './routes/api.admin.files.$fileId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -48,6 +52,11 @@ const ApiFilesRoute = ApiFilesRouteImport.update({
   path: '/api/files',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiFeedbackRoute = ApiFeedbackRouteImport.update({
+  id: '/api/feedback',
+  path: '/api/feedback',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiDatabaseRoute = ApiDatabaseRouteImport.update({
   id: '/api/database',
   path: '/api/database',
@@ -56,6 +65,11 @@ const ApiDatabaseRoute = ApiDatabaseRouteImport.update({
 const ApiChatRoute = ApiChatRouteImport.update({
   id: '/api/chat',
   path: '/api/chat',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAdminRoute = ApiAdminRouteImport.update({
+  id: '/api/admin',
+  path: '/api/admin',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiMemoryExtractRoute = ApiMemoryExtractRouteImport.update({
@@ -83,115 +97,153 @@ const ApiAuthLoginRoute = ApiAuthLoginRouteImport.update({
   path: '/api/auth/login',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAuthEmailVerificationRoute =
+  ApiAuthEmailVerificationRouteImport.update({
+    id: '/api/auth/email-verification',
+    path: '/api/auth/email-verification',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiAuthAccountRoute = ApiAuthAccountRouteImport.update({
   id: '/api/auth/account',
   path: '/api/auth/account',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAdminFilesFileIdRoute = ApiAdminFilesFileIdRouteImport.update({
+  id: '/files/$fileId',
+  path: '/files/$fileId',
+  getParentRoute: () => ApiAdminRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/api/admin': typeof ApiAdminRouteWithChildren
   '/api/chat': typeof ApiChatRoute
   '/api/database': typeof ApiDatabaseRoute
+  '/api/feedback': typeof ApiFeedbackRoute
   '/api/files': typeof ApiFilesRouteWithChildren
   '/api/models': typeof ApiModelsRoute
   '/api/providers': typeof ApiProvidersRoute
   '/api/state': typeof ApiStateRoute
   '/api/auth/account': typeof ApiAuthAccountRoute
+  '/api/auth/email-verification': typeof ApiAuthEmailVerificationRoute
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/register': typeof ApiAuthRegisterRoute
   '/api/auth/session': typeof ApiAuthSessionRoute
   '/api/files/$fileId': typeof ApiFilesFileIdRoute
   '/api/memory/extract': typeof ApiMemoryExtractRoute
+  '/api/admin/files/$fileId': typeof ApiAdminFilesFileIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/api/admin': typeof ApiAdminRouteWithChildren
   '/api/chat': typeof ApiChatRoute
   '/api/database': typeof ApiDatabaseRoute
+  '/api/feedback': typeof ApiFeedbackRoute
   '/api/files': typeof ApiFilesRouteWithChildren
   '/api/models': typeof ApiModelsRoute
   '/api/providers': typeof ApiProvidersRoute
   '/api/state': typeof ApiStateRoute
   '/api/auth/account': typeof ApiAuthAccountRoute
+  '/api/auth/email-verification': typeof ApiAuthEmailVerificationRoute
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/register': typeof ApiAuthRegisterRoute
   '/api/auth/session': typeof ApiAuthSessionRoute
   '/api/files/$fileId': typeof ApiFilesFileIdRoute
   '/api/memory/extract': typeof ApiMemoryExtractRoute
+  '/api/admin/files/$fileId': typeof ApiAdminFilesFileIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/api/admin': typeof ApiAdminRouteWithChildren
   '/api/chat': typeof ApiChatRoute
   '/api/database': typeof ApiDatabaseRoute
+  '/api/feedback': typeof ApiFeedbackRoute
   '/api/files': typeof ApiFilesRouteWithChildren
   '/api/models': typeof ApiModelsRoute
   '/api/providers': typeof ApiProvidersRoute
   '/api/state': typeof ApiStateRoute
   '/api/auth/account': typeof ApiAuthAccountRoute
+  '/api/auth/email-verification': typeof ApiAuthEmailVerificationRoute
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/register': typeof ApiAuthRegisterRoute
   '/api/auth/session': typeof ApiAuthSessionRoute
   '/api/files/$fileId': typeof ApiFilesFileIdRoute
   '/api/memory/extract': typeof ApiMemoryExtractRoute
+  '/api/admin/files/$fileId': typeof ApiAdminFilesFileIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/api/admin'
     | '/api/chat'
     | '/api/database'
+    | '/api/feedback'
     | '/api/files'
     | '/api/models'
     | '/api/providers'
     | '/api/state'
     | '/api/auth/account'
+    | '/api/auth/email-verification'
     | '/api/auth/login'
     | '/api/auth/register'
     | '/api/auth/session'
     | '/api/files/$fileId'
     | '/api/memory/extract'
+    | '/api/admin/files/$fileId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/api/admin'
     | '/api/chat'
     | '/api/database'
+    | '/api/feedback'
     | '/api/files'
     | '/api/models'
     | '/api/providers'
     | '/api/state'
     | '/api/auth/account'
+    | '/api/auth/email-verification'
     | '/api/auth/login'
     | '/api/auth/register'
     | '/api/auth/session'
     | '/api/files/$fileId'
     | '/api/memory/extract'
+    | '/api/admin/files/$fileId'
   id:
     | '__root__'
     | '/'
+    | '/api/admin'
     | '/api/chat'
     | '/api/database'
+    | '/api/feedback'
     | '/api/files'
     | '/api/models'
     | '/api/providers'
     | '/api/state'
     | '/api/auth/account'
+    | '/api/auth/email-verification'
     | '/api/auth/login'
     | '/api/auth/register'
     | '/api/auth/session'
     | '/api/files/$fileId'
     | '/api/memory/extract'
+    | '/api/admin/files/$fileId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ApiAdminRoute: typeof ApiAdminRouteWithChildren
   ApiChatRoute: typeof ApiChatRoute
   ApiDatabaseRoute: typeof ApiDatabaseRoute
+  ApiFeedbackRoute: typeof ApiFeedbackRoute
   ApiFilesRoute: typeof ApiFilesRouteWithChildren
   ApiModelsRoute: typeof ApiModelsRoute
   ApiProvidersRoute: typeof ApiProvidersRoute
   ApiStateRoute: typeof ApiStateRoute
   ApiAuthAccountRoute: typeof ApiAuthAccountRoute
+  ApiAuthEmailVerificationRoute: typeof ApiAuthEmailVerificationRoute
   ApiAuthLoginRoute: typeof ApiAuthLoginRoute
   ApiAuthRegisterRoute: typeof ApiAuthRegisterRoute
   ApiAuthSessionRoute: typeof ApiAuthSessionRoute
@@ -235,6 +287,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiFilesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/feedback': {
+      id: '/api/feedback'
+      path: '/api/feedback'
+      fullPath: '/api/feedback'
+      preLoaderRoute: typeof ApiFeedbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/database': {
       id: '/api/database'
       path: '/api/database'
@@ -247,6 +306,13 @@ declare module '@tanstack/react-router' {
       path: '/api/chat'
       fullPath: '/api/chat'
       preLoaderRoute: typeof ApiChatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/admin': {
+      id: '/api/admin'
+      path: '/api/admin'
+      fullPath: '/api/admin'
+      preLoaderRoute: typeof ApiAdminRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/memory/extract': {
@@ -284,6 +350,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthLoginRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/auth/email-verification': {
+      id: '/api/auth/email-verification'
+      path: '/api/auth/email-verification'
+      fullPath: '/api/auth/email-verification'
+      preLoaderRoute: typeof ApiAuthEmailVerificationRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/auth/account': {
       id: '/api/auth/account'
       path: '/api/auth/account'
@@ -291,8 +364,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthAccountRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/admin/files/$fileId': {
+      id: '/api/admin/files/$fileId'
+      path: '/files/$fileId'
+      fullPath: '/api/admin/files/$fileId'
+      preLoaderRoute: typeof ApiAdminFilesFileIdRouteImport
+      parentRoute: typeof ApiAdminRoute
+    }
   }
 }
+
+interface ApiAdminRouteChildren {
+  ApiAdminFilesFileIdRoute: typeof ApiAdminFilesFileIdRoute
+}
+
+const ApiAdminRouteChildren: ApiAdminRouteChildren = {
+  ApiAdminFilesFileIdRoute: ApiAdminFilesFileIdRoute,
+}
+
+const ApiAdminRouteWithChildren = ApiAdminRoute._addFileChildren(
+  ApiAdminRouteChildren,
+)
 
 interface ApiFilesRouteChildren {
   ApiFilesFileIdRoute: typeof ApiFilesFileIdRoute
@@ -308,13 +400,16 @@ const ApiFilesRouteWithChildren = ApiFilesRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ApiAdminRoute: ApiAdminRouteWithChildren,
   ApiChatRoute: ApiChatRoute,
   ApiDatabaseRoute: ApiDatabaseRoute,
+  ApiFeedbackRoute: ApiFeedbackRoute,
   ApiFilesRoute: ApiFilesRouteWithChildren,
   ApiModelsRoute: ApiModelsRoute,
   ApiProvidersRoute: ApiProvidersRoute,
   ApiStateRoute: ApiStateRoute,
   ApiAuthAccountRoute: ApiAuthAccountRoute,
+  ApiAuthEmailVerificationRoute: ApiAuthEmailVerificationRoute,
   ApiAuthLoginRoute: ApiAuthLoginRoute,
   ApiAuthRegisterRoute: ApiAuthRegisterRoute,
   ApiAuthSessionRoute: ApiAuthSessionRoute,

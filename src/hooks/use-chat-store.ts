@@ -216,6 +216,12 @@ export function estimateTokens(
   return Math.max(1, Math.ceil((messageChars + memoryChars) / 3.8))
 }
 
+export function conversationHistoryForRequest(messages: ChatMessage[]) {
+  return messages
+    .filter((message) => !message.error && message.content.trim())
+    .map(({ role, content }) => ({ role, content }))
+}
+
 export function extractReasoningText(value: unknown): string {
   if (typeof value === "string") return value
   if (Array.isArray(value)) {
@@ -671,6 +677,7 @@ export function useChatStore(userId: string) {
         reasoningStreaming: state.selectedModel.reasoningLevels.length > 0,
       }
       const messages = [...(activeConversation?.messages ?? []), userMessage]
+      const requestStartedAt = performance.now()
 
       setState((current) => {
         const existing = current.conversations.some(
@@ -715,10 +722,7 @@ export function useChatStore(userId: string) {
           body: JSON.stringify({
             provider: state.selectedModel.provider,
             model: state.selectedModel.id,
-            messages: messages.map(({ role, content: messageContent }) => ({
-              role,
-              content: messageContent,
-            })),
+            messages: conversationHistoryForRequest(messages),
             memories: state.memories
               .filter((memory) => memory.enabled)
               .map(({ id, title, content: memoryContent }) => ({
@@ -742,11 +746,32 @@ export function useChatStore(userId: string) {
           throw new Error(message || "Le fournisseur n’a pas répondu.")
         }
 
+        const responseHeadersReceivedAt = performance.now()
+        const firstOutputHeaderValue = response.headers.get(
+          "X-Lumy-First-Output-Ms"
+        )
+        const firstOutputHeader =
+          firstOutputHeaderValue === null
+            ? Number.NaN
+            : Number(firstOutputHeaderValue)
+        const routedFirstOutputTimeMs =
+          Number.isFinite(firstOutputHeader) && firstOutputHeader >= 0
+            ? firstOutputHeader
+            : null
+
         const routedProviderHeader = response.headers.get("X-Lumy-Provider")
         const routedProvider = isExternalProviderId(routedProviderHeader)
           ? routedProviderHeader
           : undefined
         const routedModelId = response.headers.get("X-Lumy-Model") ?? undefined
+        const routedContextWindowValue = Number(
+          response.headers.get("X-Lumy-Context-Window")
+        )
+        const routedContextWindow =
+          Number.isFinite(routedContextWindowValue) &&
+          routedContextWindowValue > 0
+            ? routedContextWindowValue
+            : undefined
         const fallbackCount = Number(
           response.headers.get("X-Lumy-Fallbacks") ?? 0
         )
@@ -760,6 +785,7 @@ export function useChatStore(userId: string) {
                       ...message,
                       routedProvider,
                       routedModelId,
+                      routedContextWindow,
                       fallbackCount: Number.isFinite(fallbackCount)
                         ? fallbackCount
                         : 0,
@@ -775,6 +801,9 @@ export function useChatStore(userId: string) {
         let buffer = ""
         let accumulatedRawContent = ""
         let accumulatedReasoning = ""
+        let firstOutputAt: number | null = null
+        let reasoningStartedAt: number | null = null
+        let answerStartedAt: number | null = null
 
         let streamChunk = await reader.read()
         while (!streamChunk.done) {
@@ -808,12 +837,35 @@ export function useChatStore(userId: string) {
                   parsed.choices?.[0]?.delta?.reasoning_content
               )
               if (!delta && !reasoningDelta) continue
+              const chunkReceivedAt = performance.now()
+              firstOutputAt ??= chunkReceivedAt
               accumulatedRawContent += delta
               accumulatedReasoning += reasoningDelta
               const split = splitReasoningContent(accumulatedRawContent)
               const metadata = splitResponseMetadata(split.content)
               const contentSnapshot = metadata.content
               const reasoningSnapshot = accumulatedReasoning || split.reasoning
+              if (reasoningSnapshot && reasoningStartedAt === null) {
+                reasoningStartedAt = chunkReceivedAt
+              }
+              if (contentSnapshot && answerStartedAt === null) {
+                answerStartedAt = chunkReceivedAt
+              }
+              const firstTokenTimeMs =
+                routedFirstOutputTimeMs ??
+                Math.max(0, firstOutputAt - requestStartedAt)
+              const responseTimeMs =
+                routedFirstOutputTimeMs !== null
+                  ? routedFirstOutputTimeMs +
+                    Math.max(0, chunkReceivedAt - responseHeadersReceivedAt)
+                  : Math.max(0, chunkReceivedAt - requestStartedAt)
+              const reasoningTimeMs =
+                reasoningStartedAt === null
+                  ? undefined
+                  : Math.max(
+                      0,
+                      (answerStartedAt ?? chunkReceivedAt) - reasoningStartedAt
+                    )
               setState((current) =>
                 updateConversation(current, conversationId, (conversation) => ({
                   ...conversation,
@@ -824,6 +876,9 @@ export function useChatStore(userId: string) {
                           content: contentSnapshot,
                           reasoning: reasoningSnapshot,
                           usedMemoryIds: metadata.usedMemoryIds,
+                          firstTokenTimeMs,
+                          responseTimeMs,
+                          reasoningTimeMs,
                         }
                       : message
                   ),
@@ -839,6 +894,21 @@ export function useChatStore(userId: string) {
         const finalSplit = splitReasoningContent(accumulatedRawContent)
         const finalMetadata = splitResponseMetadata(finalSplit.content)
         const finalReasoning = accumulatedReasoning || finalSplit.reasoning
+        const completedAt = performance.now()
+        const responseTimeMs =
+          routedFirstOutputTimeMs !== null
+            ? routedFirstOutputTimeMs +
+              Math.max(0, completedAt - responseHeadersReceivedAt)
+            : Math.max(0, completedAt - requestStartedAt)
+        const firstTokenTimeMs =
+          firstOutputAt === null
+            ? undefined
+            : (routedFirstOutputTimeMs ??
+              Math.max(0, firstOutputAt - requestStartedAt))
+        const reasoningTimeMs =
+          reasoningStartedAt === null
+            ? undefined
+            : Math.max(0, (answerStartedAt ?? completedAt) - reasoningStartedAt)
 
         setState((current) =>
           updateConversation(current, conversationId, (conversation) => ({
@@ -850,6 +920,9 @@ export function useChatStore(userId: string) {
                     streaming: false,
                     reasoningStreaming: false,
                     reasoning: finalReasoning,
+                    firstTokenTimeMs,
+                    responseTimeMs,
+                    reasoningTimeMs,
                     usedMemoryIds: finalMetadata.usedMemoryIds,
                     content:
                       finalMetadata.content ||
@@ -885,6 +958,10 @@ export function useChatStore(userId: string) {
                     streaming: false,
                     reasoningStreaming: false,
                     error: !aborted,
+                    responseTimeMs: Math.max(
+                      0,
+                      performance.now() - requestStartedAt
+                    ),
                     content: aborted
                       ? message.content || "Génération interrompue."
                       : "Impossible de joindre le modèle. Vérifiez la clé API du fournisseur puis réessayez.",

@@ -4,11 +4,14 @@ import {
   clearSessionCookie,
   hashPassword,
   isDuplicateEntry,
+  issueEmailVerification,
   normalizeEmail,
   requireRequestUser,
   verifyPassword,
 } from "@/lib/auth.server"
+import { isEmailDeliveryConfigured } from "@/lib/email.server"
 import { deleteUserAccount, findUserByEmail, updateUser } from "@/lib/db.server"
+import { getPasswordStrength } from "@/lib/password-strength"
 
 export const Route = createFileRoute("/api/auth/account")({
   server: {
@@ -54,12 +57,13 @@ export const Route = createFileRoute("/api/auth/account")({
         if (
           newPassword &&
           (newPassword.length < 10 ||
-            new TextEncoder().encode(newPassword).byteLength > 72)
+            new TextEncoder().encode(newPassword).byteLength > 72 ||
+            !getPasswordStrength(newPassword).secure)
         ) {
           return Response.json(
             {
               error:
-                "Le nouveau mot de passe doit contenir entre 10 et 72 octets.",
+                "Le nouveau mot de passe doit être sécurisé et contenir entre 10 et 72 octets.",
             },
             { status: 400 }
           )
@@ -85,15 +89,41 @@ export const Route = createFileRoute("/api/auth/account")({
         }
 
         try {
+          if (email !== sessionUser.email) {
+            if (!isEmailDeliveryConfigured()) {
+              return Response.json(
+                {
+                  error:
+                    "Le service de vérification d’e-mail n’est pas configuré.",
+                },
+                { status: 503 }
+              )
+            }
+            const existing = await findUserByEmail(email)
+            if (existing && existing.id !== sessionUser.id) {
+              return Response.json(
+                { error: "Cette adresse e-mail est déjà utilisée." },
+                { status: 409 }
+              )
+            }
+            await issueEmailVerification({
+              userId: sessionUser.id,
+              email,
+              name,
+              purpose: "change_email",
+            })
+          }
           await updateUser({
             id: sessionUser.id,
             name,
-            email,
             passwordHash: newPassword
               ? await hashPassword(newPassword)
               : undefined,
           })
-          return Response.json({ user: { ...sessionUser, name, email } })
+          return Response.json({
+            user: { ...sessionUser, name },
+            emailChangePending: email !== sessionUser.email ? email : undefined,
+          })
         } catch (error) {
           if (isDuplicateEntry(error)) {
             return Response.json(

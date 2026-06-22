@@ -55,6 +55,13 @@ const MarkdownMessage = lazy(() =>
   }))
 )
 
+function formatDuration(milliseconds: number) {
+  if (milliseconds < 1_000) return `${Math.round(milliseconds)} ms`
+  return `${(milliseconds / 1_000).toLocaleString("fr-FR", {
+    maximumFractionDigits: 1,
+  })} s`
+}
+
 function RichText({
   content,
   streaming,
@@ -126,6 +133,11 @@ function ThinkingBlock({ message }: { message: ChatMessage }) {
             ? "Réflexion en cours…"
             : "Réflexion du modèle"}
         </span>
+        {message.reasoningTimeMs !== undefined ? (
+          <span className="text-xs font-normal text-muted-foreground">
+            {formatDuration(message.reasoningTimeMs)}
+          </span>
+        ) : null}
         <ChevronDown
           className={cn(
             "ml-auto size-4 text-muted-foreground transition-transform",
@@ -142,6 +154,33 @@ function ThinkingBlock({ message }: { message: ChatMessage }) {
         </div>
       ) : null}
     </div>
+  )
+}
+
+function ResponseMetrics({ message }: { message: ChatMessage }) {
+  if (
+    message.streaming ||
+    (message.responseTimeMs === undefined &&
+      message.firstTokenTimeMs === undefined)
+  )
+    return null
+
+  return (
+    <p
+      className="mt-3 text-xs text-muted-foreground tabular-nums"
+      aria-label="Temps de génération"
+    >
+      {message.responseTimeMs !== undefined
+        ? `Réponse en ${formatDuration(message.responseTimeMs)}`
+        : null}
+      {message.responseTimeMs !== undefined &&
+      message.firstTokenTimeMs !== undefined
+        ? " · "
+        : null}
+      {message.firstTokenTimeMs !== undefined
+        ? `Premier contenu en ${formatDuration(message.firstTokenTimeMs)}`
+        : null}
+    </p>
   )
 }
 
@@ -237,6 +276,7 @@ function AssistantMessage({
             <span className="ml-1 inline-block h-4 w-1 animate-pulse bg-primary align-middle" />
           ) : null}
         </div>
+        <ResponseMetrics message={message} />
         {!message.streaming && message.content ? (
           <MessageActions message={message} />
         ) : null}
@@ -498,7 +538,7 @@ export function ConversationView({
                   <input
                     type="file"
                     multiple
-                    accept=".txt,.md,.csv,.json,.xml,.pdf,text/*,application/json,application/xml,application/pdf"
+                    accept=".txt,.md,.csv,.json,.xml,.pdf,text/*,application/json,application/xml,application/pdf,image/*,.avif,.heic,.heif"
                     className="sr-only"
                     onChange={(event) => onAddFiles(event.target.files)}
                   />
@@ -605,8 +645,8 @@ export function ConversationView({
         </div>
       </div>
       <Dialog open={expanded} onOpenChange={setExpanded}>
-        <DialogContent className="sm:max-w-[760px]">
-          <DialogHeader>
+        <DialogContent className="flex h-[calc(100svh-2rem)] max-h-[720px] min-h-0 w-[calc(100vw-2rem)] max-w-[760px] flex-col overflow-hidden sm:max-w-[760px]">
+          <DialogHeader className="shrink-0 pr-8">
             <DialogTitle className="font-editorial text-2xl">
               Rédiger le message
             </DialogTitle>
@@ -614,13 +654,16 @@ export function ConversationView({
               Utilisez cet espace pour préparer une demande plus longue.
             </DialogDescription>
           </DialogHeader>
-          <Textarea
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            className="min-h-[320px] resize-y text-[15px] leading-7"
-            autoFocus
-          />
-          <DialogFooter>
+          <div className="min-h-0 flex-1 overflow-hidden">
+            <Textarea
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              aria-label="Message en plein écran"
+              className="field-sizing-fixed h-full min-h-0 resize-none overflow-y-auto text-[15px] leading-7"
+              autoFocus
+            />
+          </div>
+          <DialogFooter className="shrink-0">
             <Button variant="outline" onClick={() => setExpanded(false)}>
               Réduire
             </Button>

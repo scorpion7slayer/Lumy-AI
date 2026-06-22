@@ -166,7 +166,7 @@ export function ModelPicker({
           </div>
         ) : (
           <>
-            <div className="space-y-3 border-b border-border p-4">
+            <div className="space-y-3 bg-muted/30 p-4">
               <div className="relative min-w-0 flex-1">
                 <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
@@ -277,7 +277,7 @@ export function ModelPicker({
                 </div>
               )}
             </ScrollArea>
-            <div className="border-t border-border px-4 py-3 text-xs text-muted-foreground">
+            <div className="bg-muted/30 px-4 py-3 text-xs text-muted-foreground">
               {filtered.length} sur {models.length} modèle
               {models.length > 1 ? "s" : ""} texte
             </div>
