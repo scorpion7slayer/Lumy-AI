@@ -22,6 +22,7 @@ import type {
 } from "@/lib/chat-types"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
+import { CHAT_FILE_ACCEPT } from "@/lib/file-support"
 import {
   Select,
   SelectContent,
@@ -538,7 +539,7 @@ export function ConversationView({
                   <input
                     type="file"
                     multiple
-                    accept=".txt,.md,.csv,.json,.xml,.pdf,text/*,application/json,application/xml,application/pdf,image/*,.avif,.heic,.heif"
+                    accept={CHAT_FILE_ACCEPT}
                     className="sr-only"
                     onChange={(event) => onAddFiles(event.target.files)}
                   />

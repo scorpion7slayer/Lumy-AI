@@ -7,19 +7,14 @@ import {
   ImageUploadError,
   looksLikeImageUpload,
 } from "@/lib/image-upload.server"
+import {
+  isSupportedUploadFile,
+  normalizeUploadMimeType,
+} from "@/lib/file-support"
 import type { SessionFile } from "@/lib/chat-types"
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024
 const MAX_FILES = 5
-const ACCEPTED_TYPES = new Set([
-  "application/json",
-  "application/pdf",
-  "application/xml",
-  "text/csv",
-  "text/markdown",
-  "text/plain",
-  "text/xml",
-])
 
 export const Route = createFileRoute("/api/files")({
   server: {
@@ -55,11 +50,7 @@ export const Route = createFileRoute("/api/files")({
             )
           }
           const isImage = looksLikeImageUpload(file)
-          if (
-            !isImage &&
-            !file.type.startsWith("text/") &&
-            !ACCEPTED_TYPES.has(file.type)
-          ) {
+          if (!isImage && !isSupportedUploadFile(file)) {
             return Response.json(
               { error: `${file.name} utilise un format non pris en charge.` },
               { status: 415 }
@@ -76,7 +67,7 @@ export const Route = createFileRoute("/api/files")({
             content: Buffer
           } = {
             name: sanitizedName,
-            type: file.type || "application/octet-stream",
+            type: normalizeUploadMimeType(file),
             size: file.size,
             content: Buffer.from(await file.arrayBuffer()),
           }

@@ -6,6 +6,7 @@ type SupportedParser =
   | "scss"
   | "less"
   | "json-stringify"
+  | "yaml"
 
 const parserByLanguage: Partial<Record<string, SupportedParser>> = {
   javascript: "babel",
@@ -21,6 +22,8 @@ const parserByLanguage: Partial<Record<string, SupportedParser>> = {
   less: "less",
   json: "json-stringify",
   jsonc: "json-stringify",
+  yaml: "yaml",
+  yml: "yaml",
 }
 
 export const languageLabels: Record<string, string> = {
@@ -37,6 +40,10 @@ export const languageLabels: Record<string, string> = {
   less: "Less",
   json: "JSON",
   jsonc: "JSON",
+  yaml: "YAML",
+  yml: "YAML",
+  sk: "Skript",
+  skript: "Skript",
   bash: "Terminal",
   shell: "Terminal",
   sh: "Terminal",
@@ -64,6 +71,10 @@ const extensionByLanguage: Record<string, string> = {
   less: "less",
   json: "json",
   jsonc: "json",
+  yaml: "yaml",
+  yml: "yml",
+  sk: "sk",
+  skript: "sk",
   bash: "sh",
   shell: "sh",
   sh: "sh",
@@ -135,6 +146,8 @@ export async function formatCode(code: string, language: string) {
         import("prettier/plugins/postcss"),
       ])
       plugins.push(html, babel, postcss)
+    } else if (parser === "yaml") {
+      plugins.push(await import("prettier/plugins/yaml"))
     } else {
       plugins.push(await import("prettier/plugins/postcss"))
     }

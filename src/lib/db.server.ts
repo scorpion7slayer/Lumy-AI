@@ -5,6 +5,7 @@ import type {
   ResultSetHeader,
   RowDataPacket,
 } from "mysql2/promise"
+import { isChatDocumentFile } from "@/lib/file-support"
 import type { PersistedChatState, SessionFile } from "@/lib/chat-types"
 
 export type DatabaseUser = {
@@ -712,8 +713,7 @@ export async function getChatFileContext(userId: string, fileIds: string[]) {
   )
   const documents = rows
     .filter((row) =>
-      row.mime_type.startsWith("text/") ||
-      ["application/json", "application/xml"].includes(row.mime_type)
+      isChatDocumentFile({ name: row.name, type: row.mime_type })
     )
     .map((row) => ({
       name: row.name,

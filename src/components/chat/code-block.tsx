@@ -59,8 +59,20 @@ const keywords = new Set(
   ].map((keyword) => keyword.toLocaleLowerCase("en"))
 )
 
+const hashCommentLanguages = new Set([
+  "bash",
+  "python",
+  "py",
+  "shell",
+  "sh",
+  "sk",
+  "skript",
+  "yaml",
+  "yml",
+])
+
 const tokenPattern =
-  /(<!--[\s\S]*?-->|\/\*[\s\S]*?\*\/|\/\/.*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|<\/?[A-Za-z][\w:-]*|\b\d+(?:\.\d+)?\b|\b[A-Za-z_$][\w$]*\b|[{}[\]();,.=:<>/+*-])/g
+  /(<!--[\s\S]*?-->|\/\*[\s\S]*?\*\/|\/\/.*|#.*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|<\/?[A-Za-z][\w:-]*|\b\d+(?:\.\d+)?\b|\b[A-Za-z_$][\w$]*\b|[{}[\]();,.=:<>/+*-])/g
 
 function tokenClass(token: string, language: string) {
   const normalized = token.toLocaleLowerCase("en")
@@ -68,8 +80,7 @@ function tokenClass(token: string, language: string) {
     token.startsWith("//") ||
     token.startsWith("/*") ||
     token.startsWith("<!--") ||
-    ((language === "python" || language === "py" || language === "bash") &&
-      token.startsWith("#"))
+    (hashCommentLanguages.has(language) && token.startsWith("#"))
   )
     return "code-token-comment"
   if (/^["'`]/.test(token)) return "code-token-string"

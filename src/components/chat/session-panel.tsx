@@ -9,6 +9,7 @@ import {
   X,
 } from "lucide-react"
 import type { ChatModel, MemoryItem, SessionFile } from "@/lib/chat-types"
+import { CHAT_FILE_ACCEPT } from "@/lib/file-support"
 import { Button } from "@/components/ui/button"
 import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -237,7 +238,7 @@ export function SessionPanel({
                   <input
                     type="file"
                     multiple
-                    accept=".txt,.md,.csv,.json,.xml,.pdf,text/*,application/json,application/xml,application/pdf,image/*,.avif,.heic,.heif"
+                    accept={CHAT_FILE_ACCEPT}
                     className="sr-only"
                     onChange={(event) => onAddFiles(event.target.files)}
                   />
