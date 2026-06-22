@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { sendFeedbackNotificationEmail } from "@/lib/email.server"
+import {
+  sendEarlyAccessRequestEmail,
+  sendFeedbackNotificationEmail,
+  sendSecurityAlertEmail,
+} from "@/lib/email.server"
 
 const { send } = vi.hoisted(() => ({ send: vi.fn() }))
 
@@ -41,6 +45,42 @@ describe("notifications e-mail", () => {
         html: expect.stringContaining("&lt;script&gt;alert(1)&lt;/script&gt;"),
       }),
       { idempotencyKey: "lumy-feedback/feedback-1" }
+    )
+  })
+
+  it("envoie une demande early access idempotente au propriétaire", async () => {
+    await sendEarlyAccessRequestEmail({
+      userId: "user-1",
+      recipient: "owner@example.test",
+      requesterName: "<Marie>",
+      requesterEmail: "marie@example.test",
+    })
+
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: ["owner@example.test"],
+        html: expect.stringContaining("&lt;Marie&gt;"),
+      }),
+      { idempotencyKey: "lumy-early-access/user-1" }
+    )
+  })
+
+  it("envoie une alerte idempotente après réparation du super administrateur", async () => {
+    await sendSecurityAlertEmail({
+      incidentId: "incident-1",
+      recipient: "owner@example.test",
+      affectedEmail: "intrus@example.test",
+      previousRole: "super_admin",
+      repairedRole: "admin",
+      reason: "Rôle non autorisé.",
+    })
+
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: ["owner@example.test"],
+        subject: "Alerte de sécurité administrateur — Lumy AI",
+      }),
+      { idempotencyKey: "lumy-security/incident-1" }
     )
   })
 })

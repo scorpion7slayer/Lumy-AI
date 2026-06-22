@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 import { createFileRoute } from "@tanstack/react-router"
 import type {
   ChatModel,
@@ -5,7 +6,7 @@ import type {
   ReflectionLevel,
 } from "@/lib/chat-types"
 import { requireRequestUser } from "@/lib/auth.server"
-import { getChatFileContext } from "@/lib/db.server"
+import { getChatFileContext, insertModelIncident } from "@/lib/db.server"
 import { buildDuckDuckGoQuery, searchDuckDuckGo } from "@/lib/duckduckgo.server"
 import {
   availableModelCandidates,
@@ -28,11 +29,84 @@ type RoutedModel = Pick<ChatModel, "id" | "provider" | "reasoningLevels"> & {
   provider: ExternalProviderId
   contextWindow?: number
 }
+type ModelIncident = {
+  provider: string
+  model: string
+  httpStatus: number
+  failureKind: string
+  sanitizedDetail: string
+}
 
 const OUTPUT_CONTEXT_RESERVE = 4_096
 const FIRST_OUTPUT_TIMEOUT_MS = 12_000
 const MAX_CHAT_IMAGES = 5
 const MAX_CHAT_IMAGE_BYTES = 20 * 1024 * 1024
+
+function upstreamFailureKind(status: number) {
+  if (status === 401 || status === 403) return "authentication"
+  if (status === 404) return "model_not_found"
+  if (status === 408 || status === 504) return "timeout"
+  if (status === 429) return "rate_limit"
+  if (status >= 500) return "upstream_unavailable"
+  return "upstream_http"
+}
+
+function sanitizedUpstreamDetail(status: number) {
+  if (status === 401 || status === 403) {
+    return "Le fournisseur a refusé l’authentification."
+  }
+  if (status === 404) return "Le modèle demandé est introuvable."
+  if (status === 429) return "Le fournisseur a limité le débit de requêtes."
+  if (status >= 500) return "Le fournisseur est temporairement indisponible."
+  return `Le fournisseur a répondu avec le statut HTTP ${status}.`
+}
+
+async function recordVisibleModelIncidents(input: {
+  requestId: string
+  userId: string
+  requestedProvider: string
+  requestedModel: string
+  incidents: ModelIncident[]
+}) {
+  await Promise.allSettled(
+    input.incidents.map((incident) =>
+      insertModelIncident({
+        requestId: input.requestId,
+        userId: input.userId,
+        requestedProvider: input.requestedProvider,
+        requestedModel: input.requestedModel,
+        ...incident,
+        surfacedToUser: true,
+      })
+    )
+  )
+}
+
+function observeModelStream(
+  body: ReadableStream<Uint8Array>,
+  onFailure: () => Promise<void>
+) {
+  const reader = body.getReader()
+  let failed = false
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const chunk = await reader.read()
+        if (chunk.done) controller.close()
+        else controller.enqueue(chunk.value)
+      } catch (error) {
+        if (!failed) {
+          failed = true
+          await onFailure().catch(() => undefined)
+        }
+        controller.error(error)
+      }
+    },
+    async cancel(reason) {
+      await reader.cancel(reason).catch(() => undefined)
+    },
+  })
+}
 
 function estimateContextTokens(...values: string[]) {
   const characters = values.reduce((total, value) => total + value.length, 0)
@@ -127,6 +201,8 @@ export const Route = createFileRoute("/api/chat")({
         }
 
         const requestedProvider = body.provider
+        const requestedModel = body.model
+        const incidentRequestId = randomUUID()
         const freeOnly =
           requestedProvider === "lumy" && isFreeLumyRouter(body.model)
 
@@ -205,6 +281,22 @@ export const Route = createFileRoute("/api/chat")({
         } else {
           const providerConfig = getProviderConfig(requestedProvider)
           if (!providerConfig.apiKey) {
+            await recordVisibleModelIncidents({
+              requestId: incidentRequestId,
+              userId: user.id,
+              requestedProvider,
+              requestedModel,
+              incidents: [
+                {
+                  provider: requestedProvider,
+                  model: requestedModel,
+                  httpStatus: 503,
+                  failureKind: "missing_key",
+                  sanitizedDetail:
+                    "Aucune clé API n’est configurée pour ce fournisseur.",
+                },
+              ],
+            })
             return Response.json(
               { error: "Aucun modèle n’est disponible pour ce fournisseur." },
               { status: 503 }
@@ -220,6 +312,23 @@ export const Route = createFileRoute("/api/chat")({
         }
         const firstRoutedModel = routedModels.at(0)
         if (!firstRoutedModel) {
+          await recordVisibleModelIncidents({
+            requestId: incidentRequestId,
+            userId: user.id,
+            requestedProvider,
+            requestedModel,
+            incidents: [
+              {
+                provider: requestedProvider,
+                model: requestedModel,
+                httpStatus: 503,
+                failureKind: "no_candidate",
+                sanitizedDetail: hasImages
+                  ? "Aucun modèle multimodal compatible n’est disponible."
+                  : "Aucun modèle compatible n’est disponible.",
+              },
+            ],
+          })
           return Response.json(
             {
               error: hasImages
@@ -292,7 +401,8 @@ export const Route = createFileRoute("/api/chat")({
         let routedModel: RoutedModel | null = null
         let firstOutputTimeMs: number | null = null
         let lastStatus = 502
-        let lastDetail = ""
+        let lastDetail = "Le fournisseur n’a pas répondu."
+        const failedAttempts: ModelIncident[] = []
         const blockedProviders = new Set<ExternalProviderId>()
         let attempts = 0
         for (const candidate of routedModels) {
@@ -362,7 +472,15 @@ export const Route = createFileRoute("/api/chat")({
               break
             }
             lastStatus = response.ok ? 502 : response.status || 502
-            lastDetail = await response.text()
+            lastDetail = sanitizedUpstreamDetail(lastStatus)
+            failedAttempts.push({
+              provider: candidate.provider,
+              model: candidate.id,
+              httpStatus: lastStatus,
+              failureKind: upstreamFailureKind(lastStatus),
+              sanitizedDetail: lastDetail,
+            })
+            await response.body?.cancel().catch(() => undefined)
             if (requestedProvider !== "lumy") break
             recordModelFailure(
               candidate,
@@ -377,6 +495,13 @@ export const Route = createFileRoute("/api/chat")({
             lastDetail = timedOut
               ? "Le modèle n’a produit aucun token dans le délai imparti."
               : "Connexion au fournisseur interrompue."
+            failedAttempts.push({
+              provider: candidate.provider,
+              model: candidate.id,
+              httpStatus: lastStatus,
+              failureKind: timedOut ? "timeout" : "network",
+              sanitizedDetail: lastDetail,
+            })
             if (requestedProvider !== "lumy") break
             recordModelFailure(candidate, lastStatus, null)
           } finally {
@@ -385,6 +510,24 @@ export const Route = createFileRoute("/api/chat")({
         }
 
         if (!upstreamBody || !routedModel) {
+          await recordVisibleModelIncidents({
+            requestId: incidentRequestId,
+            userId: user.id,
+            requestedProvider,
+            requestedModel,
+            incidents:
+              failedAttempts.length > 0
+                ? failedAttempts
+                : [
+                    {
+                      provider: requestedProvider,
+                      model: requestedModel,
+                      httpStatus: lastStatus,
+                      failureKind: "unavailable",
+                      sanitizedDetail: lastDetail,
+                    },
+                  ],
+          })
           return Response.json(
             {
               error:
@@ -401,7 +544,26 @@ export const Route = createFileRoute("/api/chat")({
           )
         }
 
-        return new Response(upstreamBody, {
+        const observedBody = observeModelStream(upstreamBody, () =>
+          recordVisibleModelIncidents({
+            requestId: incidentRequestId,
+            userId: user.id,
+            requestedProvider,
+            requestedModel,
+            incidents: [
+              {
+                provider: routedModel.provider,
+                model: routedModel.id,
+                httpStatus: 502,
+                failureKind: "stream",
+                sanitizedDetail:
+                  "Le flux de réponse du fournisseur a été interrompu.",
+              },
+            ],
+          })
+        )
+
+        return new Response(observedBody, {
           status: 200,
           headers: sseHeaders({
             "X-Lumy-Provider": routedModel.provider,

@@ -146,3 +146,116 @@ export async function sendFeedbackNotificationEmail(input: {
     throw new Error(`Notification de feedback impossible : ${error.message}`)
   }
 }
+
+function emailClient() {
+  const apiKey = process.env.RESEND_API_KEY?.trim()
+  const from = process.env.RESEND_FROM_EMAIL?.trim()
+  if (!apiKey || !from || !isEmailDeliveryConfigured()) {
+    throw new EmailConfigurationError()
+  }
+  return { resend: new Resend(apiKey), from }
+}
+
+export async function sendEarlyAccessRequestEmail(input: {
+  userId: string
+  recipient: string
+  requesterName: string
+  requesterEmail: string
+}) {
+  const { resend, from } = emailClient()
+  const url = new URL(appUrl())
+  url.searchParams.set("admin", "early-access")
+  const { error } = await resend.emails.send(
+    {
+      from,
+      to: [input.recipient],
+      subject: "Nouvelle demande d’accès anticipé — Lumy AI",
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:620px;margin:0 auto;color:#171a17">
+          <h1 style="font-size:26px">Nouvelle demande d’accès anticipé</h1>
+          <p><strong>${escapeHtml(input.requesterName)}</strong> (${escapeHtml(input.requesterEmail)}) souhaite accéder à Lumy AI.</p>
+          <p>Le compte reste bloqué sur la liste d’attente jusqu’à votre décision.</p>
+          <p style="margin:28px 0"><a href="${escapeHtml(url.toString())}" style="background:#171a17;color:#fff;padding:12px 18px;border-radius:10px;text-decoration:none">Examiner la demande</a></p>
+          <p style="font-size:12px;color:#858b85">Lumy AI — Powered by Zyranex</p>
+        </div>
+      `,
+      text: `Nouvelle demande d’accès anticipé\n\n${input.requesterName} (${input.requesterEmail}) souhaite accéder à Lumy AI.\n\n${url.toString()}`,
+    },
+    { idempotencyKey: `lumy-early-access/${input.userId}` }
+  )
+  if (error) {
+    throw new Error(
+      `Notification d’accès anticipé impossible : ${error.message}`
+    )
+  }
+}
+
+export async function sendEarlyAccessDecisionEmail(input: {
+  userId: string
+  recipient: string
+  name: string
+  status: "approved" | "rejected"
+}) {
+  const { resend, from } = emailClient()
+  const approved = input.status === "approved"
+  const url = appUrl()
+  const title = approved
+    ? "Votre accès anticipé est accepté"
+    : "Mise à jour de votre demande d’accès"
+  const { error } = await resend.emails.send(
+    {
+      from,
+      to: [input.recipient],
+      subject: `${title} — Lumy AI`,
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:620px;margin:0 auto;color:#171a17">
+          <h1 style="font-size:26px">${title}</h1>
+          <p>Bonjour ${escapeHtml(input.name)},</p>
+          <p>${approved ? "Votre compte peut désormais accéder à Lumy AI." : "Votre demande d’accès anticipé n’a pas été acceptée pour le moment."}</p>
+          ${approved ? `<p style="margin:28px 0"><a href="${escapeHtml(url)}" style="background:#171a17;color:#fff;padding:12px 18px;border-radius:10px;text-decoration:none">Ouvrir Lumy AI</a></p>` : ""}
+          <p style="font-size:12px;color:#858b85">Lumy AI — Powered by Zyranex</p>
+        </div>
+      `,
+      text: `${title}\n\nBonjour ${input.name},\n\n${approved ? `Votre compte peut désormais accéder à Lumy AI.\n\n${url}` : "Votre demande n’a pas été acceptée pour le moment."}`,
+    },
+    {
+      idempotencyKey: `lumy-early-access-decision/${input.userId}/${input.status}`,
+    }
+  )
+  if (error)
+    throw new Error(`Notification de décision impossible : ${error.message}`)
+}
+
+export async function sendSecurityAlertEmail(input: {
+  incidentId: string
+  recipient: string
+  affectedEmail: string
+  previousRole: string
+  repairedRole: string
+  reason: string
+}) {
+  const { resend, from } = emailClient()
+  const { error } = await resend.emails.send(
+    {
+      from,
+      to: [input.recipient],
+      subject: "Alerte de sécurité administrateur — Lumy AI",
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:620px;margin:0 auto;color:#171a17">
+          <h1 style="font-size:26px">Rôle super administrateur réparé</h1>
+          <p>Une incohérence de rôle a été détectée puis corrigée automatiquement.</p>
+          <ul>
+            <li>Compte : ${escapeHtml(input.affectedEmail)}</li>
+            <li>Ancien rôle : ${escapeHtml(input.previousRole)}</li>
+            <li>Rôle restauré : ${escapeHtml(input.repairedRole)}</li>
+          </ul>
+          <p>${escapeHtml(input.reason)}</p>
+          <p style="font-size:12px;color:#858b85">Incident ${escapeHtml(input.incidentId)} · Lumy AI</p>
+        </div>
+      `,
+      text: `Alerte de sécurité Lumy AI\n\nCompte : ${input.affectedEmail}\nAncien rôle : ${input.previousRole}\nRôle restauré : ${input.repairedRole}\n\n${input.reason}\n\nIncident ${input.incidentId}`,
+    },
+    { idempotencyKey: `lumy-security/${input.incidentId}` }
+  )
+  if (error) throw new Error(`Alerte de sécurité impossible : ${error.message}`)
+}

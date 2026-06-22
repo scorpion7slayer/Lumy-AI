@@ -1,16 +1,39 @@
 import type { PersistedChatState, SessionFile } from "@/lib/chat-types"
+import type { EarlyAccessStatus, UserCapabilities } from "@/lib/auth-types"
 
 export type AdminUserSummary = {
   id: string
   email: string
   name: string
   role: "user" | "admin"
+  accessStatus: EarlyAccessStatus
+  accessRequestedAt: string | null
+  accessReviewedAt: string | null
   emailVerified: boolean
   disabled: boolean
   createdAt: string
   fileCount: number
   feedbackCount: number
   sessionCount: number
+}
+
+export type AdminIncident = {
+  id: string
+  requestId: string | null
+  userId: string | null
+  requestedProvider: string | null
+  requestedModel: string | null
+  provider: string
+  model: string
+  httpStatus: number
+  failureKind: string
+  sanitizedDetail: string
+  surfacedToUser: boolean
+  occurrenceCount: number
+  firstOccurredAt: string
+  lastOccurredAt: string
+  resolvedAt: string | null
+  resolvedByUserId: string | null
 }
 
 export type AdminSession = {
@@ -32,8 +55,10 @@ export type AdminFeedback = {
 }
 
 export type AdminOverview = {
+  viewerCapabilities: UserCapabilities
   users: AdminUserSummary[]
   feedback: AdminFeedback[]
+  incidents: AdminIncident[]
   selected: null | {
     userId: string
     state: PersistedChatState | null

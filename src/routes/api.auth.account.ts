@@ -55,6 +55,18 @@ export const Route = createFileRoute("/api/auth/account")({
           )
         }
         if (
+          sessionUser.capabilities.superAdminAccess &&
+          email !== sessionUser.email
+        ) {
+          return Response.json(
+            {
+              error:
+                "L’adresse du compte propriétaire ne peut pas être modifiée depuis l’interface.",
+            },
+            { status: 400 }
+          )
+        }
+        if (
           newPassword &&
           (newPassword.length < 10 ||
             new TextEncoder().encode(newPassword).byteLength > 72 ||
@@ -137,6 +149,12 @@ export const Route = createFileRoute("/api/auth/account")({
       DELETE: async ({ request }) => {
         assertSameOrigin(request)
         const sessionUser = await requireRequestUser(request)
+        if (sessionUser.capabilities.superAdminAccess) {
+          return Response.json(
+            { error: "Le compte propriétaire ne peut pas être supprimé." },
+            { status: 400 }
+          )
+        }
         let body: { password?: unknown }
         try {
           body = await request.json()

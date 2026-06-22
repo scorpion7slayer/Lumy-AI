@@ -15,6 +15,7 @@ import { Route as ApiProvidersRouteImport } from './routes/api.providers'
 import { Route as ApiModelsRouteImport } from './routes/api.models'
 import { Route as ApiFilesRouteImport } from './routes/api.files'
 import { Route as ApiFeedbackRouteImport } from './routes/api.feedback'
+import { Route as ApiEarlyAccessRouteImport } from './routes/api.early-access'
 import { Route as ApiDatabaseRouteImport } from './routes/api.database'
 import { Route as ApiChatRouteImport } from './routes/api.chat'
 import { Route as ApiAdminRouteImport } from './routes/api.admin'
@@ -55,6 +56,11 @@ const ApiFilesRoute = ApiFilesRouteImport.update({
 const ApiFeedbackRoute = ApiFeedbackRouteImport.update({
   id: '/api/feedback',
   path: '/api/feedback',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiEarlyAccessRoute = ApiEarlyAccessRouteImport.update({
+  id: '/api/early-access',
+  path: '/api/early-access',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiDatabaseRoute = ApiDatabaseRouteImport.update({
@@ -119,6 +125,7 @@ export interface FileRoutesByFullPath {
   '/api/admin': typeof ApiAdminRouteWithChildren
   '/api/chat': typeof ApiChatRoute
   '/api/database': typeof ApiDatabaseRoute
+  '/api/early-access': typeof ApiEarlyAccessRoute
   '/api/feedback': typeof ApiFeedbackRoute
   '/api/files': typeof ApiFilesRouteWithChildren
   '/api/models': typeof ApiModelsRoute
@@ -138,6 +145,7 @@ export interface FileRoutesByTo {
   '/api/admin': typeof ApiAdminRouteWithChildren
   '/api/chat': typeof ApiChatRoute
   '/api/database': typeof ApiDatabaseRoute
+  '/api/early-access': typeof ApiEarlyAccessRoute
   '/api/feedback': typeof ApiFeedbackRoute
   '/api/files': typeof ApiFilesRouteWithChildren
   '/api/models': typeof ApiModelsRoute
@@ -158,6 +166,7 @@ export interface FileRoutesById {
   '/api/admin': typeof ApiAdminRouteWithChildren
   '/api/chat': typeof ApiChatRoute
   '/api/database': typeof ApiDatabaseRoute
+  '/api/early-access': typeof ApiEarlyAccessRoute
   '/api/feedback': typeof ApiFeedbackRoute
   '/api/files': typeof ApiFilesRouteWithChildren
   '/api/models': typeof ApiModelsRoute
@@ -179,6 +188,7 @@ export interface FileRouteTypes {
     | '/api/admin'
     | '/api/chat'
     | '/api/database'
+    | '/api/early-access'
     | '/api/feedback'
     | '/api/files'
     | '/api/models'
@@ -198,6 +208,7 @@ export interface FileRouteTypes {
     | '/api/admin'
     | '/api/chat'
     | '/api/database'
+    | '/api/early-access'
     | '/api/feedback'
     | '/api/files'
     | '/api/models'
@@ -217,6 +228,7 @@ export interface FileRouteTypes {
     | '/api/admin'
     | '/api/chat'
     | '/api/database'
+    | '/api/early-access'
     | '/api/feedback'
     | '/api/files'
     | '/api/models'
@@ -237,6 +249,7 @@ export interface RootRouteChildren {
   ApiAdminRoute: typeof ApiAdminRouteWithChildren
   ApiChatRoute: typeof ApiChatRoute
   ApiDatabaseRoute: typeof ApiDatabaseRoute
+  ApiEarlyAccessRoute: typeof ApiEarlyAccessRoute
   ApiFeedbackRoute: typeof ApiFeedbackRoute
   ApiFilesRoute: typeof ApiFilesRouteWithChildren
   ApiModelsRoute: typeof ApiModelsRoute
@@ -292,6 +305,13 @@ declare module '@tanstack/react-router' {
       path: '/api/feedback'
       fullPath: '/api/feedback'
       preLoaderRoute: typeof ApiFeedbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/early-access': {
+      id: '/api/early-access'
+      path: '/api/early-access'
+      fullPath: '/api/early-access'
+      preLoaderRoute: typeof ApiEarlyAccessRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/database': {
@@ -403,6 +423,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAdminRoute: ApiAdminRouteWithChildren,
   ApiChatRoute: ApiChatRoute,
   ApiDatabaseRoute: ApiDatabaseRoute,
+  ApiEarlyAccessRoute: ApiEarlyAccessRoute,
   ApiFeedbackRoute: ApiFeedbackRoute,
   ApiFilesRoute: ApiFilesRouteWithChildren,
   ApiModelsRoute: ApiModelsRoute,

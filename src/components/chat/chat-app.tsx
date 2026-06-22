@@ -364,7 +364,10 @@ export function ChatApp({
           >
             <Menu />
           </Button>
-          <h1 className="min-w-0 flex-1 truncate font-editorial text-lg font-semibold">
+          <h1
+            className="min-w-0 flex-1 truncate font-editorial text-lg font-semibold"
+            title={chat.activeConversation?.title ?? "Nouvelle discussion"}
+          >
             {chat.activeConversation?.title ?? "Nouvelle discussion"}
           </h1>
           {chat.hydrated ? (
@@ -376,7 +379,7 @@ export function ChatApp({
           ) : (
             <Button
               variant="outline"
-              className="h-10 min-w-[210px] justify-start"
+              className="h-10 w-[min(210px,35vw)] min-w-[120px] justify-start max-sm:w-10 max-sm:min-w-0 max-sm:px-2"
               disabled
             >
               <LoaderCircle className="animate-spin" data-icon="inline-start" />
@@ -521,7 +524,12 @@ export function ChatApp({
                   }}
                 >
                   <MessageSquare />
-                  {conversation.title}
+                  <span
+                    className="min-w-0 flex-1 truncate"
+                    title={conversation.title}
+                  >
+                    {conversation.title}
+                  </span>
                 </CommandItem>
               ))}
             </CommandGroup>

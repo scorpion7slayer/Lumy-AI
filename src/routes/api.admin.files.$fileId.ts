@@ -1,12 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router"
-import { requireAdmin } from "@/lib/auth.server"
+import { requireSuperAdmin } from "@/lib/auth.server"
 import { findFileForAdmin } from "@/lib/db.server"
+import { shouldForceFileDownload } from "@/lib/file-support"
 
 export const Route = createFileRoute("/api/admin/files/$fileId")({
   server: {
     handlers: {
       GET: async ({ request, params }) => {
-        await requireAdmin(request)
+        await requireSuperAdmin(request)
         const file = await findFileForAdmin(params.fileId)
         if (!file) {
           return Response.json(
@@ -14,9 +15,10 @@ export const Route = createFileRoute("/api/admin/files/$fileId")({
             { status: 404 }
           )
         }
-        const forceDownload = ["text/html", "image/svg+xml"].includes(
-          file.mime_type.toLowerCase()
-        )
+        const forceDownload = shouldForceFileDownload({
+          name: file.name,
+          type: file.mime_type,
+        })
         return new Response(new Blob([new Uint8Array(file.content)]), {
           headers: {
             "Content-Type": file.mime_type,

@@ -9,7 +9,7 @@ import {
   validateAccountInput,
 } from "@/lib/auth.server"
 import { isEmailDeliveryConfigured } from "@/lib/email.server"
-import { deleteUnverifiedUser, insertUser } from "@/lib/db.server"
+import { insertUser } from "@/lib/db.server"
 
 export const Route = createFileRoute("/api/auth/register")({
   server: {
@@ -49,10 +49,8 @@ export const Route = createFileRoute("/api/auth/register")({
           role: "user" as const,
         }
 
-        let inserted = false
         try {
           await insertUser(user)
-          inserted = true
           await issueEmailVerification({
             userId: user.id,
             email: user.email,
@@ -64,7 +62,6 @@ export const Route = createFileRoute("/api/auth/register")({
             { status: 201 }
           )
         } catch (error) {
-          if (inserted) await deleteUnverifiedUser(user.id)
           if (isDuplicateEntry(error)) {
             return Response.json(
               { error: "Un compte utilise déjà cette adresse e-mail." },

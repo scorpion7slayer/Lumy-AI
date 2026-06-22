@@ -90,14 +90,16 @@ function ConversationRow({
         type="button"
       >
         <MessageSquare className="size-4 shrink-0 text-muted-foreground" />
-        <span className="truncate">{conversation.title}</span>
+        <span className="truncate" title={conversation.title}>
+          {conversation.title}
+        </span>
       </button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
             size="icon-sm"
-            className="opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100"
+            className="opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100"
             aria-label={`Actions pour ${conversation.title}`}
           >
             <MoreHorizontal />

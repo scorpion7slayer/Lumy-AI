@@ -55,8 +55,8 @@ export function VerifyEmailScreen({ token }: { token: string }) {
           </CardTitle>
           <CardDescription>
             {verified
-              ? "Votre adresse est confirmée et votre session est ouverte."
-              : "Confirmez que cette adresse e-mail vous appartient pour accéder à Lumy."}
+              ? "Votre adresse est confirmée. Votre demande peut maintenant être examinée par un administrateur."
+              : "Confirmez que cette adresse e-mail vous appartient pour rejoindre la liste d’attente de Lumy."}
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4">
@@ -69,7 +69,7 @@ export function VerifyEmailScreen({ token }: { token: string }) {
             <>
               <CheckCircle2 className="size-10 text-emerald-600" />
               <Button onClick={() => window.location.replace("/")}>
-                Ouvrir Lumy
+                Voir ma demande
               </Button>
             </>
           ) : (

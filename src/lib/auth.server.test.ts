@@ -62,6 +62,7 @@ describe("authentification Lumy", () => {
         name: "Admin",
         createdAt: "2026-06-22T00:00:00.000Z",
         role: "admin",
+        accessStatus: "approved",
         emailVerifiedAt: "2026-06-22T00:01:00.000Z",
         disabledAt: null,
       })
@@ -71,8 +72,56 @@ describe("authentification Lumy", () => {
       name: "Admin",
       createdAt: "2026-06-22T00:00:00.000Z",
       role: "admin",
+      accessStatus: "approved",
+      capabilities: {
+        appAccess: true,
+        adminAccess: true,
+        superAdminAccess: false,
+      },
       emailVerified: true,
       disabled: false,
+    })
+  })
+
+  it("masque le rôle super administrateur tout en exposant ses capacités", () => {
+    expect(
+      publicUser({
+        id: "owner-1",
+        email: "theodarville@gmail.com",
+        name: "Propriétaire",
+        createdAt: "2026-06-22T00:00:00.000Z",
+        role: "super_admin",
+        accessStatus: "pending",
+        emailVerifiedAt: "2026-06-22T00:01:00.000Z",
+        disabledAt: null,
+      })
+    ).toMatchObject({
+      role: "admin",
+      accessStatus: "approved",
+      capabilities: {
+        appAccess: true,
+        adminAccess: true,
+        superAdminAccess: true,
+      },
+    })
+  })
+
+  it("bloque les capacités applicatives d’un utilisateur en attente", () => {
+    expect(
+      publicUser({
+        id: "user-1",
+        email: "user@example.com",
+        name: "Utilisateur",
+        createdAt: "2026-06-22T00:00:00.000Z",
+        role: "user",
+        accessStatus: "pending",
+        emailVerifiedAt: "2026-06-22T00:01:00.000Z",
+        disabledAt: null,
+      }).capabilities
+    ).toEqual({
+      appAccess: false,
+      adminAccess: false,
+      superAdminAccess: false,
     })
   })
 

@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { assertSameOrigin, requireRequestUser } from "@/lib/auth.server"
 import { deleteFile, findFile } from "@/lib/db.server"
+import { shouldForceFileDownload } from "@/lib/file-support"
 
 export const Route = createFileRoute("/api/files/$fileId")({
   server: {
@@ -14,9 +15,10 @@ export const Route = createFileRoute("/api/files/$fileId")({
             { status: 404 }
           )
 
-        const forceDownload = ["text/html", "image/svg+xml"].includes(
-          file.mime_type.toLowerCase()
-        )
+        const forceDownload = shouldForceFileDownload({
+          name: file.name,
+          type: file.mime_type,
+        })
 
         return new Response(new Blob([new Uint8Array(file.content)]), {
           headers: {

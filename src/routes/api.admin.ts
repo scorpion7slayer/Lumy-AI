@@ -1,5 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router"
-import { assertSameOrigin, requireAdmin } from "@/lib/auth.server"
+import {
+  assertSameOrigin,
+  requireAdmin,
+  requireSuperAdmin,
+} from "@/lib/auth.server"
 import {
   countAdmins,
   deleteFeedbackForAdmin,
@@ -10,25 +14,50 @@ import {
   listAdminUsers,
   listFeedbackForAdmin,
   listFilesForAdmin,
+  listIncidentsForAdmin,
   listSessionsForAdmin,
   readChatState,
+  resolveIncident,
+  reviewEarlyAccess,
   setAdminUserDisabled,
   setAdminUserRole,
   updateFeedbackStatus,
   writeChatState,
 } from "@/lib/db.server"
+import { sendEarlyAccessDecisionEmail } from "@/lib/email.server"
 
 export const Route = createFileRoute("/api/admin")({
   server: {
     handlers: {
       GET: async ({ request }) => {
-        await requireAdmin(request)
+        const admin = await requireAdmin(request)
         const requestedUserId = new URL(request.url).searchParams
           .get("userId")
           ?.trim()
-        const [users, feedback] = await Promise.all([
-          listAdminUsers(),
+        const databaseUsers = await listAdminUsers()
+        const users = databaseUsers.map(
+          ({ internalRole: _internalRole, ...user }) =>
+            admin.capabilities.superAdminAccess
+              ? user
+              : {
+                  ...user,
+                  fileCount: 0,
+                  feedbackCount: 0,
+                  sessionCount: 0,
+                }
+        )
+        if (!admin.capabilities.superAdminAccess) {
+          return Response.json({
+            viewerCapabilities: admin.capabilities,
+            users,
+            feedback: [],
+            incidents: [],
+            selected: null,
+          })
+        }
+        const [feedback, incidents] = await Promise.all([
           listFeedbackForAdmin(),
+          listIncidentsForAdmin(),
         ])
         const userId = requestedUserId || users.at(0)?.id || ""
         const [selectedState, files, sessions] = userId
@@ -39,8 +68,10 @@ export const Route = createFileRoute("/api/admin")({
             ])
           : [null, [], []]
         return Response.json({
+          viewerCapabilities: admin.capabilities,
           users,
           feedback,
+          incidents,
           selected: userId
             ? { userId, state: selectedState?.state ?? null, files, sessions }
             : null,
@@ -48,13 +79,64 @@ export const Route = createFileRoute("/api/admin")({
       },
       PATCH: async ({ request }) => {
         assertSameOrigin(request)
-        const admin = await requireAdmin(request)
+        const admin = await requireSuperAdmin(request)
         const body = (await request.json().catch(() => ({}))) as Record<
           string,
           unknown
         >
         const action = typeof body.action === "string" ? body.action : ""
         const userId = typeof body.userId === "string" ? body.userId : ""
+
+        if (action === "early_access") {
+          const status =
+            body.status === "approved" || body.status === "rejected"
+              ? body.status
+              : null
+          if (!status) {
+            return Response.json(
+              { error: "Décision d’accès invalide." },
+              { status: 400 }
+            )
+          }
+          const target = (await listAdminUsers()).find(
+            (user) => user.id === userId
+          )
+          if (!target) {
+            return Response.json(
+              { error: "Utilisateur introuvable." },
+              { status: 404 }
+            )
+          }
+          const updated = await reviewEarlyAccess(userId, status, admin.id)
+          if (!updated && target.internalRole === "user") {
+            return Response.json(
+              { error: "La demande n’a pas pu être mise à jour." },
+              { status: 409 }
+            )
+          }
+          if (updated) {
+            try {
+              await sendEarlyAccessDecisionEmail({
+                userId,
+                recipient: target.email,
+                name: target.name,
+                status,
+              })
+            } catch (error) {
+              console.error("[Lumy] Notification de décision impossible", error)
+            }
+          }
+          return Response.json({ updated: true })
+        }
+
+        if (action === "resolve_incident") {
+          const incidentId =
+            typeof body.incidentId === "string" ? body.incidentId.trim() : ""
+          const updated = await resolveIncident(incidentId, admin.id)
+          return updated
+            ? Response.json({ updated: true })
+            : Response.json({ error: "Incident introuvable." }, { status: 404 })
+        }
 
         if (action === "set_role") {
           const role = body.role === "admin" ? "admin" : "user"
@@ -72,8 +154,16 @@ export const Route = createFileRoute("/api/admin")({
               { error: "Utilisateur introuvable." },
               { status: 404 }
             )
+          if (target.internalRole === "super_admin") {
+            return Response.json(
+              {
+                error: "Le rôle du propriétaire ne peut pas être modifié ici.",
+              },
+              { status: 400 }
+            )
+          }
           if (
-            target.role === "admin" &&
+            target.internalRole === "admin" &&
             role === "user" &&
             (await countAdmins()) <= 1
           ) {
@@ -150,7 +240,7 @@ export const Route = createFileRoute("/api/admin")({
       },
       DELETE: async ({ request }) => {
         assertSameOrigin(request)
-        const admin = await requireAdmin(request)
+        const admin = await requireSuperAdmin(request)
         const params = new URL(request.url).searchParams
         const type = params.get("type")
         const id = params.get("id")?.trim() ?? ""

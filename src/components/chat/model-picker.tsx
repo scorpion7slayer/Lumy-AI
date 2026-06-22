@@ -119,7 +119,7 @@ export function ModelPicker({
       <PopoverTrigger asChild>
         <Button
           variant="outline"
-          className="h-10 min-w-[210px] justify-between bg-card px-4"
+          className="h-10 w-[min(210px,35vw)] min-w-[120px] justify-between bg-card px-4 max-sm:w-10 max-sm:min-w-0 max-sm:px-2"
           aria-label="Choisir un modèle"
         >
           <span className="flex min-w-0 items-center gap-2">
@@ -133,13 +133,13 @@ export function ModelPicker({
             ) : (
               <CircleAlert data-icon="inline-start" />
             )}
-            <span className="truncate">
+            <span className="truncate max-sm:sr-only">
               {status === "loading"
                 ? "Détection des modèles…"
                 : (selectedModel?.name ?? "Aucun modèle détecté")}
             </span>
           </span>
-          <ChevronDown data-icon="inline-end" />
+          <ChevronDown className="max-sm:hidden" data-icon="inline-end" />
         </Button>
       </PopoverTrigger>
       <PopoverContent

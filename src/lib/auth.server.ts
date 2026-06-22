@@ -2,13 +2,22 @@ import { createHash, randomBytes, randomUUID } from "node:crypto"
 import bcrypt from "bcryptjs"
 import type { AuthUser } from "@/lib/auth-types"
 import type { VerificationPurpose } from "@/lib/email.server"
-import { sendVerificationEmail } from "@/lib/email.server"
+import {
+  sendEarlyAccessRequestEmail,
+  sendSecurityAlertEmail,
+  sendVerificationEmail,
+} from "@/lib/email.server"
 import {
   deleteSessionByHash,
   findUserBySessionHash,
   insertVerificationToken,
   insertSession,
+  markEarlyAccessNotificationSent,
+  repairSuperAdminIntegrity,
+  requestEarlyAccess,
+  superAdminEmail,
 } from "@/lib/db.server"
+import type { DatabaseRole } from "@/lib/db.server"
 import { getPasswordStrength } from "@/lib/password-strength"
 
 const COOKIE_NAME = "lumy_session"
@@ -58,16 +67,27 @@ export function publicUser(user: {
   email: string
   name: string
   createdAt: string
-  role: "user" | "admin"
+  role: DatabaseRole
+  accessStatus: "pending" | "approved" | "rejected"
   emailVerifiedAt: string | null
   disabledAt: string | null
 }): AuthUser {
+  const isSuperAdmin =
+    user.role === "super_admin" &&
+    normalizeEmail(user.email) === superAdminEmail()
+  const isAdmin = user.role === "admin" || isSuperAdmin
   return {
     id: user.id,
     email: user.email,
     name: user.name,
     createdAt: user.createdAt,
-    role: user.role,
+    role: isAdmin ? "admin" : "user",
+    accessStatus: isAdmin ? "approved" : user.accessStatus,
+    capabilities: {
+      appAccess: isAdmin || user.accessStatus === "approved",
+      adminAccess: isAdmin,
+      superAdminAccess: isSuperAdmin,
+    },
     emailVerified: Boolean(user.emailVerifiedAt),
     disabled: Boolean(user.disabledAt),
   }
@@ -164,22 +184,91 @@ export function clearSessionCookie() {
 export async function getRequestUser(request: Request) {
   const token = parseCookies(request).get(COOKIE_NAME)
   if (!token) return null
-  const user = await findUserBySessionHash(hashSessionToken(token))
+  const tokenHash = hashSessionToken(token)
+  let user = await findUserBySessionHash(tokenHash)
+  if (!user) return null
+  const repairs = await repairSuperAdminIntegrity()
+  if (repairs.length) {
+    user = await findUserBySessionHash(tokenHash)
+    await Promise.allSettled(
+      repairs.map((repair) =>
+        sendSecurityAlertEmail({
+          incidentId: repair.incidentId,
+          recipient: superAdminEmail(),
+          affectedEmail: repair.email,
+          previousRole: repair.previousRole,
+          repairedRole: repair.repairedRole,
+          reason: repair.reason,
+        })
+      )
+    )
+  }
   return user ? publicUser(user) : null
 }
 
-export async function requireRequestUser(request: Request) {
+export async function requireAuthenticatedUser(request: Request) {
   const user = await getRequestUser(request)
   if (!user) throw new Response("Authentification requise.", { status: 401 })
   return user
 }
 
+export async function requireRequestUser(request: Request) {
+  const user = await requireAuthenticatedUser(request)
+  if (!user.capabilities.appAccess) {
+    throw Response.json(
+      {
+        error:
+          user.accessStatus === "rejected"
+            ? "Votre demande d’accès anticipé a été refusée."
+            : "Votre demande d’accès anticipé est en attente.",
+        code: "EARLY_ACCESS_REQUIRED",
+        accessStatus: user.accessStatus,
+      },
+      { status: 403 }
+    )
+  }
+  return user
+}
+
 export async function requireAdmin(request: Request) {
-  const user = await requireRequestUser(request)
-  if (user.role !== "admin") {
+  const user = await requireAuthenticatedUser(request)
+  if (!user.capabilities.adminAccess) {
     throw new Response("Accès administrateur requis.", { status: 403 })
   }
   return user
+}
+
+export async function requireSuperAdmin(request: Request) {
+  const user = await requireAuthenticatedUser(request)
+  if (!user.capabilities.superAdminAccess) {
+    throw new Response("Accès super administrateur requis.", { status: 403 })
+  }
+  return user
+}
+
+export async function issueEarlyAccessRequest(user: {
+  id: string
+  email: string
+  name: string
+}) {
+  const access = await requestEarlyAccess(user.id)
+  if (!access) return null
+  let notificationSent = Boolean(access.notificationSentAt)
+  if (access.status === "pending" && !notificationSent) {
+    try {
+      await sendEarlyAccessRequestEmail({
+        userId: user.id,
+        recipient: superAdminEmail(),
+        requesterName: user.name,
+        requesterEmail: user.email,
+      })
+      await markEarlyAccessNotificationSent(user.id)
+      notificationSent = true
+    } catch (error) {
+      console.error("[Lumy] Notification early access impossible", error)
+    }
+  }
+  return { ...access, notificationSent }
 }
 
 export async function issueEmailVerification(input: {

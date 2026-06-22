@@ -86,12 +86,14 @@ describe("écran d’authentification", () => {
     expect(
       screen.getByText("Sécurité du mot de passe : Très sécurisé")
     ).toBeTruthy()
-    fireEvent.click(screen.getByRole("button", { name: "Créer mon espace" }))
+    fireEvent.click(
+      screen.getByRole("button", { name: "Rejoindre la liste d’attente" })
+    )
 
     await waitFor(() =>
       expect(
         screen.getByText(
-          "Un lien de vérification vient d’être envoyé. Ouvrez-le avant de vous connecter."
+          "Vérifiez votre adresse e-mail pour finaliser votre demande d’accès anticipé."
         )
       ).toBeTruthy()
     )

@@ -5,6 +5,7 @@ import {
   enforceAuthRateLimit,
   hashSessionToken,
   isDuplicateEntry,
+  issueEarlyAccessRequest,
   issueEmailVerification,
   normalizeEmail,
 } from "@/lib/auth.server"
@@ -75,6 +76,10 @@ export const Route = createFileRoute("/api/auth/email-verification")({
               { error: "Ce lien est invalide ou a expiré." },
               { status: 410 }
             )
+          }
+          if (verified.purpose === "verify_email") {
+            const verifiedUser = await findUserByEmail(verified.email)
+            if (verifiedUser) await issueEarlyAccessRequest(verifiedUser)
           }
           const cookie = await createAuthSession(verified.userId)
           return Response.json(

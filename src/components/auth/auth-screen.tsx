@@ -130,7 +130,9 @@ export function AuthScreen({
       } else if (payload.verificationRequired) {
         setVerificationEmail(payload.email ?? email)
         setNotice(
-          "Un lien de vérification vient d’être envoyé. Ouvrez-le avant de vous connecter."
+          mode === "register"
+            ? "Vérifiez votre adresse e-mail pour finaliser votre demande d’accès anticipé."
+            : "Un lien de vérification vient d’être envoyé. Ouvrez-le avant de vous connecter."
         )
       }
     } catch (submitError) {
@@ -219,7 +221,7 @@ export function AuthScreen({
             </div>
             <CardTitle className="font-editorial text-3xl">Bienvenue</CardTitle>
             <CardDescription>
-              Connectez-vous ou créez votre espace personnel.
+              Connectez-vous ou demandez votre accès anticipé.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -234,7 +236,7 @@ export function AuthScreen({
             >
               <TabsList className="mb-6 w-full">
                 <TabsTrigger value="login">Connexion</TabsTrigger>
-                <TabsTrigger value="register">Créer un compte</TabsTrigger>
+                <TabsTrigger value="register">Demander l’accès</TabsTrigger>
               </TabsList>
               <form onSubmit={submit}>
                 <FieldGroup>
@@ -315,7 +317,7 @@ export function AuthScreen({
                     {pending
                       ? "Veuillez patienter…"
                       : mode === "register"
-                        ? "Créer mon espace"
+                        ? "Rejoindre la liste d’attente"
                         : "Se connecter"}
                   </Button>
                 </FieldGroup>
