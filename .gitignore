@@ -13,6 +13,8 @@ __unconfig*
 todos.json
 scripts/ 
 database/
+design-qa.md
+
 
 # typescript
 *.tsbuildinfo
