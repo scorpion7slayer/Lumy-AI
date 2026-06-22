@@ -2,6 +2,7 @@ import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router"
 import { ThemeProvider } from "next-themes"
 import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { CookieNotice } from "@/components/cookie-notice"
 import appCss from "../styles.css?url"
 
 export const Route = createRootRoute({
@@ -62,6 +63,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
           disableTransitionOnChange
         >
           <TooltipProvider delayDuration={300}>{children}</TooltipProvider>
+          <CookieNotice />
           <Toaster position="top-center" />
         </ThemeProvider>
         <Scripts />

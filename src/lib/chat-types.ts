@@ -1,6 +1,12 @@
 export type ExternalProviderId = "openrouter" | "kilo" | "opencode" | "nvidia"
 export type ProviderId = ExternalProviderId | "lumy"
 export type ReflectionLevel = "standard" | "low" | "medium" | "high"
+export type WebSearchMode = "off" | "on" | "auto"
+
+export type WebSource = {
+  title: string
+  url: string
+}
 
 export type ChatModel = {
   id: string
@@ -38,6 +44,12 @@ export type ChatMessage = {
   firstTokenTimeMs?: number
   responseTimeMs?: number
   reasoningTimeMs?: number
+  reference?: {
+    conversationId: string
+    title: string
+  }
+  webSearchExecuted?: boolean
+  webSources?: WebSource[]
 }
 
 export type Conversation = {
@@ -81,5 +93,6 @@ export type PersistedChatState = {
   autoMemory: boolean
   files: SessionFile[]
   webSearch: boolean
+  webSearchMode?: WebSearchMode
   reflection: ReflectionLevel
 }

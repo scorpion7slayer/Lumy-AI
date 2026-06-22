@@ -1,10 +1,13 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from "react"
 import {
   BookOpen,
+  Bell,
+  Headphones,
   Library,
   LoaderCircle,
   Menu,
   MessageSquare,
+  Moon,
   PanelRight,
   PencilLine,
   Plus,
@@ -12,9 +15,11 @@ import {
   Settings,
   ShieldCheck,
   Sparkles,
+  Sun,
   Trash2,
 } from "lucide-react"
 import { toast } from "sonner"
+import { useTheme } from "next-themes"
 import type { AuthUser } from "@/lib/auth-types"
 import { AccountSettingsDialog } from "@/components/auth/account-settings-dialog"
 import { ChatSidebar } from "@/components/chat/chat-sidebar"
@@ -52,6 +57,11 @@ import { Textarea } from "@/components/ui/textarea"
 import { estimateTokens, useChatStore } from "@/hooks/use-chat-store"
 
 const AdminDialog = lazy(() => import("@/components/admin/admin-dialog"))
+const CollaborationDialog = lazy(() =>
+  import("@/components/chat/collaboration-dialog").then((module) => ({
+    default: module.CollaborationDialog,
+  }))
+)
 
 function MemoryDialog({
   open,
@@ -264,7 +274,14 @@ export function ChatApp({
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [adminOpen, setAdminOpen] = useState(false)
+  const [collaborationOpen, setCollaborationOpen] = useState(false)
+  const [collaborationTab, setCollaborationTab] = useState<
+    "support" | "groups" | "announcements" | "notifications"
+  >("support")
+  const [unreadNotifications, setUnreadNotifications] = useState(0)
   const [modelsReady, setModelsReady] = useState(false)
+  const [themeMounted, setThemeMounted] = useState(false)
+  const { resolvedTheme, setTheme } = useTheme()
   const handleModelsDetected = useCallback(() => setModelsReady(true), [])
   const latestRoutedContextWindow = chat.activeConversation?.messages
     .slice()
@@ -277,6 +294,33 @@ export function ChatApp({
           contextWindow: latestRoutedContextWindow,
         }
       : chat.state.selectedModel
+
+  useEffect(() => {
+    setThemeMounted(true)
+  }, [])
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.has("support") || params.has("supportTicket")) {
+      setCollaborationTab("support")
+      setCollaborationOpen(true)
+    } else if (params.has("group") || params.has("groupInvite")) {
+      setCollaborationTab("groups")
+      setCollaborationOpen(true)
+    }
+  }, [])
+
+  useEffect(() => {
+    const updateNotifications = async () => {
+      const response = await fetch("/api/notifications")
+      if (!response.ok) return
+      const payload = (await response.json()) as { unreadCount?: number }
+      setUnreadNotifications(payload.unreadCount ?? 0)
+    }
+    void updateNotifications()
+    const timer = window.setInterval(updateNotifications, 15_000)
+    return () => window.clearInterval(timer)
+  }, [collaborationOpen])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -358,6 +402,34 @@ export function ChatApp({
           <Button
             variant="ghost"
             size="icon"
+            onClick={() => {
+              setCollaborationTab("support")
+              setCollaborationOpen(true)
+            }}
+            aria-label="Ouvrir l’assistance"
+          >
+            <Headphones />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="relative"
+            onClick={() => {
+              setCollaborationTab("notifications")
+              setCollaborationOpen(true)
+            }}
+            aria-label={`${unreadNotifications} notification${unreadNotifications > 1 ? "s" : ""} non lue${unreadNotifications > 1 ? "s" : ""}`}
+          >
+            <Bell />
+            {unreadNotifications ? (
+              <span className="text-destructive-foreground absolute top-1 right-1 grid min-h-4 min-w-4 place-items-center rounded-full bg-destructive px-1 text-[9px] font-semibold">
+                {Math.min(unreadNotifications, 99)}
+              </span>
+            ) : null}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
             className="min-[901px]:hidden"
             onClick={() => setLeftOpen(true)}
             aria-label="Ouvrir la navigation"
@@ -404,6 +476,21 @@ export function ChatApp({
           >
             <PanelRight />
           </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            disabled={!themeMounted}
+            onClick={() =>
+              setTheme(resolvedTheme === "dark" ? "light" : "dark")
+            }
+            aria-label={
+              resolvedTheme === "dark"
+                ? "Activer le thème clair"
+                : "Activer le thème sombre"
+            }
+          >
+            {resolvedTheme === "dark" ? <Sun /> : <Moon />}
+          </Button>
         </header>
 
         <div className="col-start-2 row-start-2 flex min-h-0 min-w-0 max-[900px]:col-start-1">
@@ -413,17 +500,22 @@ export function ChatApp({
             model={modelsReady ? chat.state.selectedModel : null}
             modelAvailable={modelsReady && Boolean(chat.state.selectedModel)}
             memories={chat.state.memories}
-            webSearch={chat.state.webSearch}
+            conversations={chat.state.conversations}
+            webSearchMode={
+              chat.state.webSearchMode ??
+              (chat.state.webSearch ? "auto" : "off")
+            }
             webSearchAvailable={
               modelsReady && Boolean(chat.state.selectedModel)
             }
             reflection={chat.state.reflection}
-            onWebSearchChange={chat.setWebSearch}
+            onWebSearchChange={chat.setWebSearchMode}
             onReflectionChange={chat.setReflection}
             onSend={chat.sendMessage}
             onStop={chat.stopGeneration}
             onAddFiles={chat.addFiles}
             userName={user.name}
+            userId={user.id}
           />
         </div>
 
@@ -563,6 +655,15 @@ export function ChatApp({
         onSignedOut={onSignedOut}
       />
       <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
+      <Suspense fallback={null}>
+        <CollaborationDialog
+          key={collaborationTab}
+          open={collaborationOpen}
+          onOpenChange={setCollaborationOpen}
+          user={user}
+          initialTab={collaborationTab}
+        />
+      </Suspense>
       {user.role === "admin" ? (
         <Suspense fallback={null}>
           <AdminDialog

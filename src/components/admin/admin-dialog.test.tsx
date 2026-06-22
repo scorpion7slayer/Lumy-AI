@@ -51,6 +51,7 @@ const overview: AdminOverview = {
   ],
   feedback: [],
   incidents: [],
+  modelManagement: [],
   selected: {
     userId: "user-2",
     state: {
@@ -171,7 +172,7 @@ describe("administration", () => {
     expect(screen.getByText("Informations du compte")).toBeTruthy()
     expect(screen.queryByText("Projet confidentiel")).toBeNull()
     expect(screen.queryByRole("tab", { name: /Feedback/ })).toBeNull()
-    expect(screen.queryByRole("tab", { name: /Accès anticipé/ })).toBeNull()
+    expect(screen.getByRole("tab", { name: /Accès anticipé/ })).toBeTruthy()
     expect(screen.queryByRole("tab", { name: /Incidents/ })).toBeNull()
     expect(screen.queryByText(/Super admin/i)).toBeNull()
     expect(screen.getAllByText("Admin").length).toBeGreaterThan(0)

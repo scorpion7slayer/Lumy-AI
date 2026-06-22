@@ -9,6 +9,8 @@ import type {
   PersistedChatState,
   ReflectionLevel,
   SessionFile,
+  WebSearchMode,
+  WebSource,
 } from "@/lib/chat-types"
 import { mergeAutomaticMemories } from "@/lib/automatic-memory"
 import { splitResponseMetadata } from "@/lib/response-metadata"
@@ -31,6 +33,7 @@ export function createEmptyChatState(): PersistedChatState {
     autoMemory: true,
     files: [],
     webSearch: false,
+    webSearchMode: "off",
     reflection: "standard",
   }
 }
@@ -108,6 +111,7 @@ export function migrateLegacyChatState(
       )
     ),
     webSearch: Boolean(legacy.webSearch),
+    webSearchMode: legacy.webSearch ? "auto" : "off",
     reflection: normalizeReflection(legacy.depth),
   }
 }
@@ -119,21 +123,41 @@ export function normalizeReflection(value: unknown): ReflectionLevel {
   return "standard"
 }
 
+export function normalizeWebSearchMode(
+  value: unknown,
+  legacyEnabled = false
+): WebSearchMode {
+  if (value === "on" || value === "auto" || value === "off") return value
+  return legacyEnabled ? "auto" : "off"
+}
+
 export function normalizeChatState(
   state: PersistedChatState
 ): PersistedChatState {
   const reflection = normalizeReflection(state.reflection)
   const autoMemory =
     typeof state.autoMemory === "boolean" ? state.autoMemory : true
+  const webSearchMode = normalizeWebSearchMode(
+    state.webSearchMode,
+    state.webSearch
+  )
   const emptyConversations = state.conversations.filter(
     (conversation) =>
       conversation.messages.length === 0 &&
       !state.files.some((file) => file.conversationId === conversation.id)
   )
   if (emptyConversations.length < 2) {
-    return reflection === state.reflection && autoMemory === state.autoMemory
+    return reflection === state.reflection &&
+      autoMemory === state.autoMemory &&
+      webSearchMode === state.webSearchMode
       ? state
-      : { ...state, reflection, autoMemory }
+      : {
+          ...state,
+          reflection,
+          autoMemory,
+          webSearchMode,
+          webSearch: webSearchMode !== "off",
+        }
   }
 
   const activeEmpty = emptyConversations.find(
@@ -155,6 +179,8 @@ export function normalizeChatState(
       : keptEmptyId,
     reflection,
     autoMemory,
+    webSearchMode,
+    webSearch: webSearchMode !== "off",
   }
 }
 
@@ -220,6 +246,93 @@ export function conversationHistoryForRequest(messages: ChatMessage[]) {
   return messages
     .filter((message) => !message.error && message.content.trim())
     .map(({ role, content }) => ({ role, content }))
+}
+
+export function extractWebSources(content: string): WebSource[] {
+  const sources: WebSource[] = []
+  const seen = new Set<string>()
+  const markdownLink = /\[([^\]]+)]\((https?:\/\/[^\s)]+)\)/g
+  let match = markdownLink.exec(content)
+  while (match) {
+    const [, rawTitle, rawUrl] = match
+    try {
+      const url = new URL(rawUrl).toString()
+      if (!seen.has(url)) {
+        seen.add(url)
+        sources.push({ title: rawTitle.trim() || new URL(url).hostname, url })
+      }
+    } catch {
+      // Ignore malformed model-generated links.
+    }
+    match = markdownLink.exec(content)
+  }
+  return sources.slice(0, 20)
+}
+
+export function parseWebSourcesHeader(value: string | null): WebSource[] {
+  if (!value || value.length > 16_000) return []
+  const candidates = [value]
+  try {
+    candidates.unshift(decodeURIComponent(value))
+  } catch {
+    // The header may already contain plain JSON.
+  }
+  if (typeof window !== "undefined") {
+    try {
+      candidates.push(window.atob(value))
+    } catch {
+      // The header is not base64 encoded.
+    }
+  }
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate) as unknown
+      if (!Array.isArray(parsed)) continue
+      return parsed
+        .flatMap((source) => {
+          if (!source || typeof source !== "object") return []
+          const item = source as { title?: unknown; url?: unknown }
+          if (typeof item.url !== "string") return []
+          try {
+            const url = new URL(item.url)
+            if (url.protocol !== "http:" && url.protocol !== "https:") return []
+            return [
+              {
+                title:
+                  typeof item.title === "string" && item.title.trim()
+                    ? item.title.trim().slice(0, 180)
+                    : url.hostname,
+                url: url.toString(),
+              },
+            ]
+          } catch {
+            return []
+          }
+        })
+        .slice(0, 20)
+    } catch {
+      // Try the next supported encoding.
+    }
+  }
+  return []
+}
+
+export function conversationHistoryWithReference(
+  messages: ChatMessage[],
+  reference?: Conversation | null
+) {
+  const currentHistory = conversationHistoryForRequest(messages)
+  if (!reference || reference.messages.length === 0) return currentHistory
+  const referencedHistory = conversationHistoryForRequest(reference.messages)
+  if (!referencedHistory.length) return currentHistory
+  return [
+    {
+      role: "user" as const,
+      content: `Contexte référencé depuis la conversation « ${reference.title} » :`,
+    },
+    ...referencedHistory,
+    ...currentHistory,
+  ]
 }
 
 export function extractReasoningText(value: unknown): string {
@@ -460,6 +573,9 @@ export function useChatStore(userId: string) {
         selectedModel: model,
         reflection,
         webSearch: model ? current.webSearch : false,
+        webSearchMode: model
+          ? normalizeWebSearchMode(current.webSearchMode, current.webSearch)
+          : "off",
       }
     })
   }, [])
@@ -585,8 +701,12 @@ export function useChatStore(userId: string) {
     toast.success("Fichier supprimé")
   }, [])
 
-  const setWebSearch = useCallback((value: boolean) => {
-    setState((current) => ({ ...current, webSearch: value }))
+  const setWebSearchMode = useCallback((value: WebSearchMode) => {
+    setState((current) => ({
+      ...current,
+      webSearch: value !== "off",
+      webSearchMode: value,
+    }))
   }, [])
 
   const setAutoMemory = useCallback((value: boolean) => {
@@ -648,7 +768,7 @@ export function useChatStore(userId: string) {
   )
 
   const sendMessage = useCallback(
-    async (content: string) => {
+    async (content: string, referencedConversationId?: string) => {
       const trimmed = content.trim()
       if (!trimmed || isGenerating) return
       if (!state.selectedModel) {
@@ -659,11 +779,28 @@ export function useChatStore(userId: string) {
       }
 
       const conversationId = activeConversation?.id ?? uid()
+      const persistedReferenceId = activeConversation?.messages
+        .slice()
+        .reverse()
+        .find((message) => message.reference)?.reference?.conversationId
+      const effectiveReferenceId =
+        referencedConversationId ?? persistedReferenceId
+      const referencedConversation = state.conversations.find(
+        (conversation) =>
+          conversation.id === effectiveReferenceId &&
+          conversation.id !== conversationId
+      )
       const userMessage: ChatMessage = {
         id: uid(),
         role: "user",
         content: trimmed,
         createdAt: now(),
+        reference: referencedConversation
+          ? {
+              conversationId: referencedConversation.id,
+              title: referencedConversation.title,
+            }
+          : undefined,
       }
       const assistantId = uid()
       const assistantMessage: ChatMessage = {
@@ -715,14 +852,37 @@ export function useChatStore(userId: string) {
       abortRef.current = controller
 
       try {
+        let referenceStoredOnServer = false
+        if (referencedConversation) {
+          try {
+            const referenceResponse = await fetch(
+              "/api/conversation-references",
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  conversationId,
+                  referencedConversationId: referencedConversation.id,
+                }),
+              }
+            )
+            referenceStoredOnServer = referenceResponse.ok
+          } catch {
+            // The chat request below carries the reference inline instead.
+          }
+        }
         const response = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           signal: controller.signal,
           body: JSON.stringify({
+            conversationId,
             provider: state.selectedModel.provider,
             model: state.selectedModel.id,
-            messages: conversationHistoryForRequest(messages),
+            messages: conversationHistoryWithReference(
+              messages,
+              referenceStoredOnServer ? null : referencedConversation
+            ),
             memories: state.memories
               .filter((memory) => memory.enabled)
               .map(({ id, title, content: memoryContent }) => ({
@@ -733,7 +893,20 @@ export function useChatStore(userId: string) {
             preferences: {
               reflection: state.reflection,
               reasoningEnabled: state.selectedModel.reasoningLevels.length > 0,
-              webSearch: state.webSearch,
+              webSearch:
+                normalizeWebSearchMode(state.webSearchMode, state.webSearch) ===
+                "off"
+                  ? false
+                  : normalizeWebSearchMode(
+                        state.webSearchMode,
+                        state.webSearch
+                      ) === "on"
+                    ? true
+                    : "auto",
+              webSearchMode: normalizeWebSearchMode(
+                state.webSearchMode,
+                state.webSearch
+              ),
             },
             fileIds: state.files
               .filter((file) => file.conversationId === conversationId)
@@ -775,6 +948,14 @@ export function useChatStore(userId: string) {
         const fallbackCount = Number(
           response.headers.get("X-Lumy-Fallbacks") ?? 0
         )
+        const webSearchHeader = response.headers.get("X-Lumy-Web-Search")
+        const headerWebSources = parseWebSourcesHeader(
+          response.headers.get("X-Lumy-Web-Sources")
+        )
+        const webSearchExecuted =
+          webSearchHeader === "1" ||
+          webSearchHeader === "true" ||
+          webSearchHeader === "used"
         if (state.selectedModel.provider === "lumy" && routedProvider) {
           setState((current) =>
             updateConversation(current, conversationId, (conversation) => ({
@@ -893,6 +1074,9 @@ export function useChatStore(userId: string) {
 
         const finalSplit = splitReasoningContent(accumulatedRawContent)
         const finalMetadata = splitResponseMetadata(finalSplit.content)
+        const webSources = headerWebSources.length
+          ? headerWebSources
+          : extractWebSources(finalMetadata.content)
         const finalReasoning = accumulatedReasoning || finalSplit.reasoning
         const completedAt = performance.now()
         const responseTimeMs =
@@ -924,6 +1108,9 @@ export function useChatStore(userId: string) {
                     responseTimeMs,
                     reasoningTimeMs,
                     usedMemoryIds: finalMetadata.usedMemoryIds,
+                    webSearchExecuted:
+                      webSearchExecuted || webSources.length > 0,
+                    webSources,
                     content:
                       finalMetadata.content ||
                       (finalReasoning
@@ -985,6 +1172,8 @@ export function useChatStore(userId: string) {
       state.reflection,
       state.selectedModel,
       state.webSearch,
+      state.webSearchMode,
+      state.conversations,
     ]
   )
 
@@ -1006,7 +1195,7 @@ export function useChatStore(userId: string) {
     deleteMemory,
     addFiles,
     removeFile,
-    setWebSearch,
+    setWebSearchMode,
     setAutoMemory,
     setReflection,
     sendMessage,

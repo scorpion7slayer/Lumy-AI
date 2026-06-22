@@ -183,6 +183,11 @@
   overflow-wrap: anywhere;
 }
 
+.chat-message-shell {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 220px;
+}
+
 .chat-prose > :first-child {
   margin-top: 0;
 }

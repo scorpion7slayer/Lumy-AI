@@ -54,11 +54,29 @@ export type AdminFeedback = {
   updatedAt: string
 }
 
+export type AdminManagedModel = {
+  provider: string
+  providerLabel: string
+  id: string
+  name: string
+  enabled: boolean
+  incidentCount: number
+}
+
+export type AdminManagedProvider = {
+  id: string
+  label: string
+  enabled: boolean
+  incidentCount: number
+  models: AdminManagedModel[]
+}
+
 export type AdminOverview = {
   viewerCapabilities: UserCapabilities
   users: AdminUserSummary[]
   feedback: AdminFeedback[]
   incidents: AdminIncident[]
+  modelManagement: AdminManagedProvider[]
   selected: null | {
     userId: string
     state: PersistedChatState | null

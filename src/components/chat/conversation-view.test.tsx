@@ -41,7 +41,8 @@ function renderView(
         model={model}
         modelAvailable={Boolean(model)}
         memories={memories}
-        webSearch={false}
+        conversations={[currentConversation]}
+        webSearchMode="off"
         webSearchAvailable={Boolean(model)}
         reflection="standard"
         onWebSearchChange={vi.fn()}
@@ -120,7 +121,8 @@ describe("conversation view", () => {
           model={null}
           modelAvailable={false}
           memories={[]}
-          webSearch={false}
+          conversations={[conversation]}
+          webSearchMode="off"
           webSearchAvailable={false}
           reflection="standard"
           onWebSearchChange={vi.fn()}
@@ -209,5 +211,77 @@ describe("conversation view", () => {
     expect(
       (await screen.findAllByText("Format préféré")).length
     ).toBeGreaterThan(0)
+  })
+
+  it("affiche les sources utilisées à côté du bouton copier", () => {
+    renderView(baseModel, {
+      ...conversation,
+      messages: [
+        {
+          id: "sourced-answer",
+          role: "assistant",
+          content: "Réponse sourcée.",
+          createdAt: "2026-06-22T00:00:00.000Z",
+          webSearchExecuted: true,
+          webSources: [
+            { title: "Documentation", url: "https://example.com/docs" },
+          ],
+        },
+      ],
+    })
+
+    expect(
+      screen.getByRole("button", { name: "1 source utilisée" })
+    ).toBeTruthy()
+  })
+
+  it("rend progressivement une très longue conversation", () => {
+    renderView(baseModel, {
+      ...conversation,
+      messages: Array.from({ length: 120 }, (_, index) => ({
+        id: `message-${index}`,
+        role: "user" as const,
+        content: `Message ${index}`,
+        createdAt: "2026-06-22T00:00:00.000Z",
+      })),
+    })
+
+    expect(screen.queryByText("Message 0")).toBeNull()
+    expect(screen.getByText("Message 119")).toBeTruthy()
+    fireEvent.click(
+      screen.getByRole("button", { name: /Afficher 50 messages précédents/ })
+    )
+    expect(screen.getByText("Message 0")).toBeTruthy()
+  })
+
+  it("accepte le glisser-déposer de fichiers dans le chat", () => {
+    const onAddFiles = vi.fn()
+    const file = new File(["image"], "capture.png", { type: "image/png" })
+    render(
+      <TooltipProvider>
+        <ConversationView
+          conversation={conversation}
+          conversations={[conversation]}
+          isGenerating={false}
+          model={baseModel}
+          modelAvailable
+          memories={[]}
+          webSearchMode="off"
+          webSearchAvailable
+          reflection="standard"
+          onWebSearchChange={vi.fn()}
+          onReflectionChange={vi.fn()}
+          onSend={vi.fn()}
+          onStop={vi.fn()}
+          onAddFiles={onAddFiles}
+          userName="Test User"
+        />
+      </TooltipProvider>
+    )
+
+    fireEvent.drop(screen.getByRole("main"), {
+      dataTransfer: { types: ["Files"], files: [file] },
+    })
+    expect(onAddFiles).toHaveBeenCalledWith([file])
   })
 })

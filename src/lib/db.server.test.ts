@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { resolveDatabaseConfig } from "@/lib/db.server"
+import { databaseDateToISOString, resolveDatabaseConfig } from "@/lib/db.server"
 
 describe("resolveDatabaseConfig", () => {
   it("utilise les paramètres MySQL séparés", () => {
@@ -61,5 +61,25 @@ describe("resolveDatabaseConfig", () => {
         DB_USER: "lumy-user",
       })
     ).toThrow("DB_PORT doit être un numéro de port valide.")
+  })
+})
+
+describe("databaseDateToISOString", () => {
+  it("réinterprète une heure MySQL de Bruxelles avec l’heure d’été", () => {
+    expect(
+      databaseDateToISOString(
+        new Date("2026-06-22T20:15:00.000Z"),
+        "Europe/Brussels"
+      )
+    ).toBe("2026-06-22T18:15:00.000Z")
+  })
+
+  it("utilise automatiquement l’heure d’hiver", () => {
+    expect(
+      databaseDateToISOString(
+        new Date("2026-01-22T20:15:00.000Z"),
+        "Europe/Brussels"
+      )
+    ).toBe("2026-01-22T19:15:00.000Z")
   })
 })

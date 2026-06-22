@@ -7,6 +7,10 @@ import {
   normalizeReflection,
   splitReasoningContent,
   extractReasoningText,
+  extractWebSources,
+  normalizeWebSearchMode,
+  parseWebSourcesHeader,
+  conversationHistoryWithReference,
 } from "@/hooks/use-chat-store"
 
 describe("initial chat state", () => {
@@ -20,6 +24,7 @@ describe("initial chat state", () => {
       autoMemory: true,
       files: [],
       webSearch: false,
+      webSearchMode: "off",
       reflection: "standard",
     })
   })
@@ -172,6 +177,61 @@ describe("initial chat state", () => {
       { role: "user", content: "Je m’appelle Théo." },
       { role: "assistant", content: "Enchanté Théo." },
       { role: "user", content: "Comment je m’appelle ?" },
+    ])
+  })
+
+  it("normalizes the three web search modes", () => {
+    expect(normalizeWebSearchMode("off", true)).toBe("off")
+    expect(normalizeWebSearchMode("on")).toBe("on")
+    expect(normalizeWebSearchMode("auto")).toBe("auto")
+    expect(normalizeWebSearchMode(undefined, true)).toBe("auto")
+  })
+
+  it("extracts and validates web sources", () => {
+    expect(
+      extractWebSources(
+        "Selon [la documentation](https://example.com/docs), ceci est confirmé."
+      )
+    ).toEqual([{ title: "la documentation", url: "https://example.com/docs" }])
+    expect(
+      parseWebSourcesHeader(
+        encodeURIComponent(
+          JSON.stringify([{ title: "Source", url: "https://example.org/a" }])
+        )
+      )
+    ).toEqual([{ title: "Source", url: "https://example.org/a" }])
+  })
+
+  it("adds the referenced conversation to the model request only", () => {
+    const referenced = {
+      id: "reference",
+      title: "Projet précédent",
+      createdAt: "2026-06-21T00:00:00.000Z",
+      updatedAt: "2026-06-21T00:00:00.000Z",
+      messages: [
+        {
+          id: "reference-user",
+          role: "user" as const,
+          content: "Le projet utilise PostgreSQL.",
+          createdAt: "2026-06-21T00:00:00.000Z",
+        },
+      ],
+    }
+    const history = conversationHistoryWithReference(
+      [
+        {
+          id: "new-user",
+          role: "user",
+          content: "Quelle base utilise-t-il ?",
+          createdAt: "2026-06-22T00:00:00.000Z",
+        },
+      ],
+      referenced
+    )
+    expect(history.map((message) => message.content)).toEqual([
+      "Contexte référencé depuis la conversation « Projet précédent » :",
+      "Le projet utilise PostgreSQL.",
+      "Quelle base utilise-t-il ?",
     ])
   })
 })

@@ -1,9 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router"
-import {
-  assertSameOrigin,
-  requireAdmin,
-  requireSuperAdmin,
-} from "@/lib/auth.server"
+import { assertSameOrigin, requireAdmin } from "@/lib/auth.server"
 import {
   countAdmins,
   deleteFeedbackForAdmin,
@@ -15,16 +11,21 @@ import {
   listFeedbackForAdmin,
   listFilesForAdmin,
   listIncidentsForAdmin,
+  listModelControls,
+  listModelIncidentStats,
   listSessionsForAdmin,
   readChatState,
   resolveIncident,
   reviewEarlyAccess,
   setAdminUserDisabled,
   setAdminUserRole,
+  setModelControl,
   updateFeedbackStatus,
   writeChatState,
 } from "@/lib/db.server"
 import { sendEarlyAccessDecisionEmail } from "@/lib/email.server"
+import { getModelCatalog } from "@/lib/model-catalog.server"
+import { isExternalProviderId, providerLabels } from "@/lib/providers"
 
 export const Route = createFileRoute("/api/admin")({
   server: {
@@ -52,13 +53,65 @@ export const Route = createFileRoute("/api/admin")({
             users,
             feedback: [],
             incidents: [],
+            modelManagement: [],
             selected: null,
           })
         }
-        const [feedback, incidents] = await Promise.all([
-          listFeedbackForAdmin(),
-          listIncidentsForAdmin(),
-        ])
+        const [feedback, incidents, catalog, controls, modelStats] =
+          await Promise.all([
+            listFeedbackForAdmin(),
+            listIncidentsForAdmin(),
+            getModelCatalog(),
+            listModelControls(),
+            listModelIncidentStats(),
+          ])
+        const providerControl = new Map(
+          controls
+            .filter((control) => control.modelId === null)
+            .map((control) => [control.provider, control.enabled])
+        )
+        const modelControl = new Map(
+          controls
+            .filter((control) => control.modelId !== null)
+            .map((control) => [
+              `${control.provider}:${control.modelId}`,
+              control.enabled,
+            ])
+        )
+        const incidentCount = new Map(
+          modelStats.map((item) => [
+            `${item.provider}:${item.model}`,
+            item.occurrenceCount,
+          ])
+        )
+        const modelManagement = catalog.configuredProviders.map((provider) => {
+          const models = catalog.models
+            .filter(
+              (model) =>
+                isExternalProviderId(model.provider) &&
+                model.provider === provider
+            )
+            .map((model) => ({
+              provider,
+              providerLabel: providerLabels[provider],
+              id: model.id,
+              name: model.name,
+              enabled:
+                providerControl.get(provider) !== false &&
+                modelControl.get(`${provider}:${model.id}`) !== false,
+              incidentCount: incidentCount.get(`${provider}:${model.id}`) ?? 0,
+            }))
+          return {
+            id: provider,
+            label: providerLabels[provider],
+            enabled: providerControl.get(provider) !== false,
+            incidentCount: models.reduce(
+              (total, model) => total + model.incidentCount,
+              0
+            ),
+            models,
+          }
+        })
         const userId = requestedUserId || users.at(0)?.id || ""
         const [selectedState, files, sessions] = userId
           ? await Promise.all([
@@ -72,6 +125,7 @@ export const Route = createFileRoute("/api/admin")({
           users,
           feedback,
           incidents,
+          modelManagement,
           selected: userId
             ? { userId, state: selectedState?.state ?? null, files, sessions }
             : null,
@@ -79,7 +133,7 @@ export const Route = createFileRoute("/api/admin")({
       },
       PATCH: async ({ request }) => {
         assertSameOrigin(request)
-        const admin = await requireSuperAdmin(request)
+        const admin = await requireAdmin(request)
         const body = (await request.json().catch(() => ({}))) as Record<
           string,
           unknown
@@ -107,35 +161,74 @@ export const Route = createFileRoute("/api/admin")({
               { status: 404 }
             )
           }
+          if (target.internalRole !== "user") {
+            return Response.json(
+              {
+                error:
+                  "L’accès anticipé ne s’applique pas aux administrateurs.",
+              },
+              { status: 400 }
+            )
+          }
           const updated = await reviewEarlyAccess(userId, status, admin.id)
-          if (!updated && target.internalRole === "user") {
+          if (!updated) {
             return Response.json(
               { error: "La demande n’a pas pu être mise à jour." },
               { status: 409 }
             )
           }
-          if (updated) {
-            try {
-              await sendEarlyAccessDecisionEmail({
-                userId,
-                recipient: target.email,
-                name: target.name,
-                status,
-              })
-            } catch (error) {
-              console.error("[Lumy] Notification de décision impossible", error)
-            }
+          try {
+            await sendEarlyAccessDecisionEmail({
+              userId,
+              recipient: target.email,
+              name: target.name,
+              status,
+            })
+          } catch (error) {
+            console.error("[Lumy] Notification de décision impossible", error)
           }
           return Response.json({ updated: true })
         }
 
         if (action === "resolve_incident") {
+          if (!admin.capabilities.superAdminAccess) {
+            return Response.json(
+              { error: "Accès super administrateur requis." },
+              { status: 403 }
+            )
+          }
           const incidentId =
             typeof body.incidentId === "string" ? body.incidentId.trim() : ""
           const updated = await resolveIncident(incidentId, admin.id)
           return updated
             ? Response.json({ updated: true })
             : Response.json({ error: "Incident introuvable." }, { status: 404 })
+        }
+
+        if (action === "model_control") {
+          if (!admin.capabilities.superAdminAccess) {
+            return Response.json(
+              { error: "Accès super administrateur requis." },
+              { status: 403 }
+            )
+          }
+          const provider =
+            typeof body.provider === "string" ? body.provider.trim() : ""
+          const modelId =
+            typeof body.modelId === "string" ? body.modelId.trim() : null
+          if (!isExternalProviderId(provider)) {
+            return Response.json(
+              { error: "Fournisseur invalide." },
+              { status: 400 }
+            )
+          }
+          await setModelControl({
+            provider,
+            modelId,
+            enabled: body.enabled === true,
+            updatedByUserId: admin.id,
+          })
+          return Response.json({ updated: true })
         }
 
         if (action === "set_role") {
@@ -162,6 +255,17 @@ export const Route = createFileRoute("/api/admin")({
               { status: 400 }
             )
           }
+          if (!admin.capabilities.superAdminAccess) {
+            if (target.internalRole !== "user" || role !== "admin") {
+              return Response.json(
+                {
+                  error:
+                    "Un administrateur peut promouvoir un utilisateur, mais ne peut pas modifier un autre administrateur.",
+                },
+                { status: 403 }
+              )
+            }
+          }
           if (
             target.internalRole === "admin" &&
             role === "user" &&
@@ -185,11 +289,41 @@ export const Route = createFileRoute("/api/admin")({
               { status: 400 }
             )
           }
+          const target = (await listAdminUsers()).find(
+            (user) => user.id === userId
+          )
+          if (!target) {
+            return Response.json(
+              { error: "Utilisateur introuvable." },
+              { status: 404 }
+            )
+          }
+          if (
+            !admin.capabilities.superAdminAccess &&
+            target.internalRole !== "user"
+          ) {
+            return Response.json(
+              { error: "Vous ne pouvez pas désactiver un administrateur." },
+              { status: 403 }
+            )
+          }
+          if (target.internalRole === "super_admin") {
+            return Response.json(
+              { error: "Le compte propriétaire ne peut pas être désactivé." },
+              { status: 403 }
+            )
+          }
           await setAdminUserDisabled(userId, body.disabled === true)
           return Response.json({ updated: true })
         }
 
         if (action === "delete_conversation" || action === "delete_memory") {
+          if (!admin.capabilities.superAdminAccess) {
+            return Response.json(
+              { error: "Accès super administrateur requis." },
+              { status: 403 }
+            )
+          }
           const resourceId =
             typeof body.resourceId === "string" ? body.resourceId : ""
           const stored = await readChatState(userId)
@@ -220,6 +354,12 @@ export const Route = createFileRoute("/api/admin")({
         }
 
         if (action === "feedback_status") {
+          if (!admin.capabilities.superAdminAccess) {
+            return Response.json(
+              { error: "Accès super administrateur requis." },
+              { status: 403 }
+            )
+          }
           const feedbackId =
             typeof body.feedbackId === "string" ? body.feedbackId : ""
           const status = ["new", "reviewed", "resolved"].includes(
@@ -240,7 +380,7 @@ export const Route = createFileRoute("/api/admin")({
       },
       DELETE: async ({ request }) => {
         assertSameOrigin(request)
-        const admin = await requireSuperAdmin(request)
+        const admin = await requireAdmin(request)
         const params = new URL(request.url).searchParams
         const type = params.get("type")
         const id = params.get("id")?.trim() ?? ""
@@ -257,8 +397,36 @@ export const Route = createFileRoute("/api/admin")({
               { status: 400 }
             )
           }
+          const target = (await listAdminUsers()).find((user) => user.id === id)
+          if (!target) {
+            return Response.json(
+              { error: "Utilisateur introuvable." },
+              { status: 404 }
+            )
+          }
+          if (target.internalRole === "super_admin") {
+            return Response.json(
+              { error: "Le compte propriétaire ne peut pas être supprimé." },
+              { status: 403 }
+            )
+          }
+          if (
+            !admin.capabilities.superAdminAccess &&
+            target.internalRole !== "user"
+          ) {
+            return Response.json(
+              { error: "Vous ne pouvez pas supprimer un administrateur." },
+              { status: 403 }
+            )
+          }
           await deleteUserAccount(id)
           return new Response(null, { status: 204 })
+        }
+        if (!admin.capabilities.superAdminAccess) {
+          return Response.json(
+            { error: "Accès super administrateur requis." },
+            { status: 403 }
+          )
         }
         if (type === "file") {
           const deleted = await deleteFileForAdmin(id)

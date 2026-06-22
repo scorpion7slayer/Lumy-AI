@@ -259,3 +259,76 @@ export async function sendSecurityAlertEmail(input: {
   )
   if (error) throw new Error(`Alerte de sécurité impossible : ${error.message}`)
 }
+
+export async function sendGroupInvitationEmail(input: {
+  invitationId: string
+  recipient: string
+  inviterName: string
+  groupTitle: string
+  token: string
+}) {
+  const { resend, from } = emailClient()
+  const url = new URL(appUrl())
+  url.searchParams.set("groupInvite", input.token)
+  const { error } = await resend.emails.send(
+    {
+      from,
+      to: [input.recipient],
+      subject: `Invitation à « ${input.groupTitle} » — Lumy AI`,
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:620px;margin:0 auto;color:#171a17;line-height:1.6">
+          <p style="margin:0 0 8px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#687068">Lumy AI · Conversation de groupe</p>
+          <h1 style="margin:0 0 18px;font-size:26px;line-height:1.2">Vous êtes invité à rejoindre une conversation</h1>
+          <p><strong>${escapeHtml(input.inviterName)}</strong> vous invite dans « <strong>${escapeHtml(input.groupTitle)}</strong> ».</p>
+          <p style="margin:28px 0"><a href="${escapeHtml(url.toString())}" style="display:inline-block;background:#171a17;color:#fff;padding:12px 18px;border-radius:10px;text-decoration:none;font-weight:600">Voir l’invitation</a></p>
+          <p style="font-size:13px;color:#687068">Connectez-vous avec cette adresse e-mail pour accepter ou refuser l’invitation.</p>
+          <p style="font-size:12px;color:#858b85">Lumy AI By Zyranex</p>
+        </div>
+      `,
+      text: `${input.inviterName} vous invite dans « ${input.groupTitle} » sur Lumy AI.\n\n${url.toString()}`,
+    },
+    { idempotencyKey: `lumy-group-invite/${input.invitationId}` }
+  )
+  if (error) {
+    throw new Error(`Invitation de groupe impossible : ${error.message}`)
+  }
+}
+
+export async function sendSupportTicketOpenedEmail(input: {
+  ticketId: string
+  recipients: string[]
+  requesterName: string
+  requesterEmail: string
+  subject: string
+}) {
+  const { resend, from } = emailClient()
+  const recipients = Array.from(
+    new Set(input.recipients.map((email) => email.trim()).filter(Boolean))
+  )
+  if (!recipients.length) throw new EmailConfigurationError()
+  const url = new URL(appUrl())
+  url.searchParams.set("supportTicket", input.ticketId)
+  const { error } = await resend.emails.send(
+    {
+      from,
+      to: recipients,
+      subject: `Nouveau ticket d’assistance — ${input.subject}`,
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:620px;margin:0 auto;color:#171a17;line-height:1.6">
+          <p style="margin:0 0 8px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#687068">Lumy AI · Assistance</p>
+          <h1 style="margin:0 0 18px;font-size:26px;line-height:1.2">Un ticket vient d’être ouvert</h1>
+          <p><strong>${escapeHtml(input.requesterName)}</strong> (${escapeHtml(input.requesterEmail)}) demande de l’aide.</p>
+          <div style="margin:22px 0;padding:16px;border:1px solid #d9ddd9;border-radius:10px"><strong>${escapeHtml(input.subject)}</strong></div>
+          <p style="margin:28px 0"><a href="${escapeHtml(url.toString())}" style="display:inline-block;background:#171a17;color:#fff;padding:12px 18px;border-radius:10px;text-decoration:none;font-weight:600">Ouvrir le ticket</a></p>
+          <p style="font-size:13px;color:#687068">Les réponses suivantes et les notifications restent uniquement dans Lumy.</p>
+          <p style="font-size:12px;color:#858b85">Lumy AI By Zyranex</p>
+        </div>
+      `,
+      text: `Nouveau ticket Lumy AI\n\n${input.requesterName} (${input.requesterEmail})\n${input.subject}\n\n${url.toString()}`,
+    },
+    { idempotencyKey: `lumy-support-ticket/${input.ticketId}` }
+  )
+  if (error) {
+    throw new Error(`Notification du ticket impossible : ${error.message}`)
+  }
+}

@@ -1,4 +1,12 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react"
+import {
+  lazy,
+  memo,
+  Suspense,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 import { toast } from "sonner"
 import {
   ArrowUp,
@@ -6,7 +14,12 @@ import {
   ChevronDown,
   Copy,
   Expand,
+  ExternalLink,
+  FileUp,
+  Globe2,
+  Link2,
   LoaderCircle,
+  MessagesSquare,
   Mic,
   Paperclip,
   Search,
@@ -19,6 +32,7 @@ import type {
   Conversation,
   MemoryItem,
   ReflectionLevel,
+  WebSearchMode,
 } from "@/lib/chat-types"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -41,7 +55,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Toggle } from "@/components/ui/toggle"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import {
   Tooltip,
   TooltipContent,
@@ -103,6 +129,39 @@ function MessageActions({ message }: { message: ChatMessage }) {
         </TooltipTrigger>
         <TooltipContent>{copied ? "Copié" : "Copier"}</TooltipContent>
       </Tooltip>
+      {message.webSearchExecuted && message.webSources?.length ? (
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1.5 px-2 text-xs"
+              aria-label={`${message.webSources.length} source${message.webSources.length > 1 ? "s" : ""} utilisée${message.webSources.length > 1 ? "s" : ""}`}
+            >
+              <Globe2 />
+              {message.webSources.length} source
+              {message.webSources.length > 1 ? "s" : ""}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-80 gap-1 p-2">
+            <p className="px-2 py-1 text-xs font-medium text-muted-foreground">
+              Sources consultées
+            </p>
+            {message.webSources.map((source) => (
+              <a
+                key={source.url}
+                href={source.url}
+                target="_blank"
+                rel="noreferrer"
+                className="flex min-w-0 items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-accent"
+              >
+                <span className="min-w-0 flex-1 truncate">{source.title}</span>
+                <ExternalLink className="size-3.5 shrink-0 text-muted-foreground" />
+              </a>
+            ))}
+          </PopoverContent>
+        </Popover>
+      ) : null}
     </div>
   )
 }
@@ -221,7 +280,7 @@ function MemoryUsageIndicator({
   )
 }
 
-function AssistantMessage({
+const AssistantMessage = memo(function AssistantMessage({
   message,
   memories,
 }: {
@@ -284,9 +343,9 @@ function AssistantMessage({
       </div>
     </article>
   )
-}
+})
 
-function UserMessage({
+const UserMessage = memo(function UserMessage({
   message,
   initials,
 }: {
@@ -300,13 +359,44 @@ function UserMessage({
       </Avatar>
       <div className="min-w-0">
         <p className="mb-2 font-editorial text-lg font-semibold">Vous</p>
+        {message.reference ? (
+          <span className="mb-2 inline-flex max-w-full items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+            <Link2 className="size-3.5 shrink-0" />
+            <span className="truncate">
+              Contexte : {message.reference.title}
+            </span>
+          </span>
+        ) : null}
         <p className="text-[15px] leading-7 whitespace-pre-wrap">
           {message.content}
         </p>
       </div>
     </article>
   )
-}
+})
+
+const ConversationMessage = memo(function ConversationMessage({
+  message,
+  initials,
+  memories,
+  separated,
+}: {
+  message: ChatMessage
+  initials: string
+  memories: MemoryItem[]
+  separated: boolean
+}) {
+  return (
+    <div className="chat-message-shell">
+      {message.role === "user" ? (
+        <UserMessage message={message} initials={initials} />
+      ) : (
+        <AssistantMessage message={message} memories={memories} />
+      )}
+      {separated ? <Separator className="mt-9" /> : null}
+    </div>
+  )
+})
 
 export function ConversationView({
   conversation,
@@ -314,7 +404,8 @@ export function ConversationView({
   model,
   modelAvailable,
   memories,
-  webSearch,
+  conversations,
+  webSearchMode,
   webSearchAvailable,
   reflection,
   onWebSearchChange,
@@ -323,29 +414,54 @@ export function ConversationView({
   onStop,
   onAddFiles,
   userName,
+  userId,
 }: {
   conversation: Conversation | null
   isGenerating: boolean
   model: ChatModel | null
   modelAvailable: boolean
   memories: MemoryItem[]
-  webSearch: boolean
+  conversations: Conversation[]
+  webSearchMode: WebSearchMode
   webSearchAvailable: boolean
   reflection: ReflectionLevel
-  onWebSearchChange: (value: boolean) => void
+  onWebSearchChange: (value: WebSearchMode) => void
   onReflectionChange: (value: ReflectionLevel) => void
-  onSend: (content: string) => void
+  onSend: (content: string, referencedConversationId?: string) => void
   onStop: () => void
   onAddFiles: (files: FileList | null) => void
   userName: string
+  userId?: string
 }) {
   const [draft, setDraft] = useState("")
   const [expanded, setExpanded] = useState(false)
   const [dictating, setDictating] = useState(false)
   const [atBottom, setAtBottom] = useState(true)
+  const [draggingFiles, setDraggingFiles] = useState(false)
+  const [selectedReferenceId, setSelectedReferenceId] = useState<string>()
+  const [visibleMessageCount, setVisibleMessageCount] = useState(80)
+  const [aboutOpen, setAboutOpen] = useState(false)
+  const [changelogOpen, setChangelogOpen] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const stickToBottomRef = useRef(true)
+  const dragDepthRef = useRef(0)
   const messages = conversation?.messages ?? []
+  const hiddenMessageCount = Math.max(0, messages.length - visibleMessageCount)
+  const visibleMessages = useMemo(
+    () => messages.slice(hiddenMessageCount),
+    [hiddenMessageCount, messages]
+  )
+  const referenceOptions = useMemo(
+    () =>
+      conversations.filter(
+        (candidate) =>
+          candidate.id !== conversation?.id && candidate.messages.length > 0
+      ),
+    [conversation?.id, conversations]
+  )
+  const selectedReference = referenceOptions.find(
+    (candidate) => candidate.id === selectedReferenceId
+  )
   const reasoningLevels = model?.reasoningLevels ?? []
   const initials =
     userName
@@ -354,6 +470,21 @@ export function ConversationView({
       .slice(0, 2)
       .map((part) => part.charAt(0).toUpperCase())
       .join("") || "U"
+
+  useEffect(() => {
+    try {
+      if (
+        userId &&
+        window.localStorage.getItem(
+          `lumy.early-access.welcome.v1:${userId}`
+        ) !== "seen"
+      ) {
+        setChangelogOpen(true)
+      }
+    } catch {
+      // The welcome can safely wait when local storage is unavailable.
+    }
+  }, [userId])
 
   const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
     const element = scrollRef.current
@@ -367,6 +498,13 @@ export function ConversationView({
   }
 
   useEffect(() => {
+    setVisibleMessageCount(80)
+    setSelectedReferenceId(
+      conversation?.messages
+        .slice()
+        .reverse()
+        .find((message) => message.reference)?.reference?.conversationId
+    )
     const frame = requestAnimationFrame(() => scrollToBottom("auto"))
     return () => cancelAnimationFrame(frame)
     // A newly selected conversation always opens on its latest message.
@@ -392,9 +530,34 @@ export function ConversationView({
     if (!draft.trim() || isGenerating) return
     stickToBottomRef.current = true
     setAtBottom(true)
-    onSend(draft)
+    onSend(draft, selectedReferenceId)
     setDraft("")
     setExpanded(false)
+  }
+
+  const hasDraggedFiles = (event: React.DragEvent) =>
+    Array.from(event.dataTransfer.types).includes("Files")
+
+  const handleDragEnter = (event: React.DragEvent<HTMLElement>) => {
+    if (!hasDraggedFiles(event)) return
+    event.preventDefault()
+    dragDepthRef.current += 1
+    setDraggingFiles(true)
+  }
+
+  const handleDragLeave = (event: React.DragEvent<HTMLElement>) => {
+    if (!hasDraggedFiles(event)) return
+    event.preventDefault()
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
+    if (dragDepthRef.current === 0) setDraggingFiles(false)
+  }
+
+  const handleDrop = (event: React.DragEvent<HTMLElement>) => {
+    if (!hasDraggedFiles(event)) return
+    event.preventDefault()
+    dragDepthRef.current = 0
+    setDraggingFiles(false)
+    if (event.dataTransfer.files.length) onAddFiles(event.dataTransfer.files)
   }
 
   const startDictation = () => {
@@ -444,7 +607,26 @@ export function ConversationView({
   }
 
   return (
-    <main className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-background">
+    <main
+      className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-background"
+      onDragEnter={handleDragEnter}
+      onDragOver={(event) => {
+        if (hasDraggedFiles(event)) event.preventDefault()
+      }}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {draggingFiles ? (
+        <div className="pointer-events-none absolute inset-3 z-40 grid place-items-center rounded-2xl border-2 border-dashed border-primary bg-background/90 backdrop-blur-sm">
+          <div className="text-center">
+            <FileUp className="mx-auto mb-3 size-8 text-primary" />
+            <p className="font-medium">Déposez vos fichiers ici</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Images, documents, code et archives compatibles
+            </p>
+          </div>
+        </div>
+      ) : null}
       <div
         ref={scrollRef}
         data-testid="conversation-scroll"
@@ -453,17 +635,28 @@ export function ConversationView({
       >
         {messages.length > 0 ? (
           <div className="mx-auto flex w-full max-w-[820px] flex-col gap-9 px-8 pt-14 pb-10 max-sm:px-5">
-            {messages.map((message, index) => (
-              <div key={message.id}>
-                {message.role === "user" ? (
-                  <UserMessage message={message} initials={initials} />
-                ) : (
-                  <AssistantMessage message={message} memories={memories} />
-                )}
-                {index < messages.length - 1 ? (
-                  <Separator className="mt-9" />
-                ) : null}
-              </div>
+            {hiddenMessageCount > 0 ? (
+              <Button
+                variant="outline"
+                className="mx-auto"
+                onClick={() =>
+                  setVisibleMessageCount((current) => current + 50)
+                }
+              >
+                Afficher 50 messages précédents
+                <span className="text-muted-foreground">
+                  ({hiddenMessageCount} masqués)
+                </span>
+              </Button>
+            ) : null}
+            {visibleMessages.map((message, index) => (
+              <ConversationMessage
+                key={message.id}
+                message={message}
+                initials={initials}
+                memories={memories}
+                separated={index < visibleMessages.length - 1}
+              />
             ))}
           </div>
         ) : (
@@ -545,29 +738,95 @@ export function ConversationView({
                   />
                 </label>
               </Button>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Toggle
-                    pressed={webSearch}
-                    onPressedChange={onWebSearchChange}
-                    disabled={!webSearchAvailable}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
                     variant="outline"
-                    aria-label={
-                      webSearchAvailable
-                        ? `${webSearch ? "Désactiver" : "Autoriser"} la recherche web intelligente`
-                        : "Sélectionnez un modèle pour utiliser la recherche web"
+                    disabled={!webSearchAvailable}
+                    aria-label="Mode de recherche web"
+                  >
+                    <Search data-icon="inline-start" />
+                    {webSearchMode === "off"
+                      ? "Recherche web désactivée"
+                      : webSearchMode === "on"
+                        ? "Recherche web activée"
+                        : "Recherche web auto"}
+                    <ChevronDown data-icon="inline-end" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="w-64">
+                  <DropdownMenuLabel>Mode de recherche web</DropdownMenuLabel>
+                  <DropdownMenuRadioGroup
+                    value={webSearchMode}
+                    onValueChange={(value) =>
+                      onWebSearchChange(value as WebSearchMode)
                     }
                   >
-                    <Search />
-                    {webSearch ? "Recherche web auto" : "Recherche web"}
-                  </Toggle>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {webSearchAvailable
-                    ? "Lumy cherchera via DuckDuckGo uniquement si la question le nécessite."
-                    : "Sélectionnez d’abord un modèle."}
-                </TooltipContent>
-              </Tooltip>
+                    <DropdownMenuRadioItem value="off">
+                      <div>
+                        <p>Recherche web désactivée</p>
+                        <p className="text-xs text-muted-foreground">
+                          Répond sans consulter Internet
+                        </p>
+                      </div>
+                    </DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="on">
+                      <div>
+                        <p>Recherche web activée</p>
+                        <p className="text-xs text-muted-foreground">
+                          Recherche pour la prochaine demande
+                        </p>
+                      </div>
+                    </DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="auto">
+                      <div>
+                        <p>Recherche web auto</p>
+                        <p className="text-xs text-muted-foreground">
+                          Lumy décide selon votre question
+                        </p>
+                      </div>
+                    </DropdownMenuRadioItem>
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant={selectedReference ? "secondary" : "outline"}
+                    disabled={referenceOptions.length === 0}
+                    aria-label="Référencer une conversation"
+                    className="max-w-60"
+                  >
+                    <MessagesSquare data-icon="inline-start" />
+                    <span className="truncate">
+                      {selectedReference
+                        ? selectedReference.title
+                        : "Référencer un chat"}
+                    </span>
+                    <ChevronDown data-icon="inline-end" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="w-72">
+                  <DropdownMenuLabel>
+                    Ajouter le contexte d’une discussion
+                  </DropdownMenuLabel>
+                  <DropdownMenuRadioGroup
+                    value={selectedReferenceId}
+                    onValueChange={setSelectedReferenceId}
+                  >
+                    {referenceOptions.map((candidate) => (
+                      <DropdownMenuRadioItem
+                        key={candidate.id}
+                        value={candidate.id}
+                      >
+                        <span className="truncate" title={candidate.title}>
+                          {candidate.title}
+                        </span>
+                      </DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
               <div className="ml-auto flex items-center gap-2 max-sm:ml-0 max-sm:w-full">
                 <span className="hidden items-center gap-1.5 text-xs text-muted-foreground lg:flex">
                   <BrainCircuit className="size-3.5" />
@@ -640,9 +899,27 @@ export function ConversationView({
               </div>
             </div>
           </div>
-          <p className="pt-2 text-center text-[10px] text-muted-foreground">
-            Lumy peut se tromper. Vérifiez les informations importantes.
-          </p>
+          <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 pt-2 text-center text-[10px] text-muted-foreground">
+            <span>
+              Lumy peut se tromper. Vérifiez les informations importantes.
+            </span>
+            <span aria-hidden="true">·</span>
+            <span>© 2026 Lumy AI By Zyranex</span>
+            <button
+              type="button"
+              className="underline-offset-2 hover:underline"
+              onClick={() => setAboutOpen(true)}
+            >
+              Crédits
+            </button>
+            <button
+              type="button"
+              className="underline-offset-2 hover:underline"
+              onClick={() => setChangelogOpen(true)}
+            >
+              Nouveautés
+            </button>
+          </div>
         </div>
       </div>
       <Dialog open={expanded} onOpenChange={setExpanded}>
@@ -676,6 +953,89 @@ export function ConversationView({
               Envoyer
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={aboutOpen} onOpenChange={setAboutOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-editorial text-2xl">
+              Crédits
+            </DialogTitle>
+            <DialogDescription>
+              Les personnes et projets derrière Lumy.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-xl border border-border bg-muted/35 p-4">
+            <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+              Développement web
+            </p>
+            <p className="mt-2 font-medium">scorpion7slayer - ou / nxtaigen</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Développeur principal
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" asChild>
+                <a
+                  href="https://github.com/scorpion7slayer"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  GitHub <ExternalLink data-icon="inline-end" />
+                </a>
+              </Button>
+              <Button variant="outline" size="sm" asChild>
+                <a href="https://nxtaigen.com" target="_blank" rel="noreferrer">
+                  nxtaigen.com <ExternalLink data-icon="inline-end" />
+                </a>
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={changelogOpen}
+        onOpenChange={(open) => {
+          setChangelogOpen(open)
+          if (!open && userId) {
+            try {
+              window.localStorage.setItem(
+                `lumy.early-access.welcome.v1:${userId}`,
+                "seen"
+              )
+            } catch {
+              // The welcome can safely reappear when storage is unavailable.
+            }
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="font-editorial text-2xl">
+              Bienvenue dans l’Early Access
+            </DialogTitle>
+            <DialogDescription>
+              Merci de découvrir Lumy en avance. Vos retours aident à améliorer
+              le produit avant son ouverture publique.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <section className="rounded-xl border border-border p-4">
+              <p className="text-xs font-medium tracking-wide text-primary uppercase">
+                22 juin 2026
+              </p>
+              <h3 className="mt-1 font-medium">Une expérience plus fluide</h3>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-sm leading-6 text-muted-foreground">
+                <li>Recherche web avec modes désactivé, activé et auto.</li>
+                <li>Glisser-déposer de fichiers directement dans le chat.</li>
+                <li>Référence d’une ancienne discussion dans une nouvelle.</li>
+                <li>Affichage progressif des très longues conversations.</li>
+              </ul>
+            </section>
+            <p className="text-xs leading-5 text-muted-foreground">
+              Cette fenêtre ne s’affiche automatiquement qu’une fois. Vous
+              pouvez retrouver les annonces via « Nouveautés » sous le chat.
+            </p>
+          </div>
         </DialogContent>
       </Dialog>
     </main>

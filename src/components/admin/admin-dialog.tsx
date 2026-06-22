@@ -5,10 +5,12 @@ import {
   Bug,
   CheckCircle2,
   Clock3,
+  Cpu,
   Download,
   FileText,
   LogOut,
   MessageSquare,
+  Power,
   RefreshCw,
   ShieldCheck,
   Trash2,
@@ -206,6 +208,11 @@ export default function AdminDialog({
     (conversation) => conversation.id === selectedConversationId
   )
   const isSuperAdmin = overview?.viewerCapabilities.superAdminAccess === true
+  const canManageSelected = Boolean(
+    selectedUser &&
+    selectedUser.id !== currentUserId &&
+    (isSuperAdmin || selectedUser.role !== "admin")
+  )
   const pendingUsers = overview?.users.filter(
     (user) => user.role !== "admin" && user.accessStatus === "pending"
   )
@@ -213,7 +220,13 @@ export default function AdminDialog({
 
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
+      <Dialog
+        open={open}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen && deleting) return
+          onOpenChange(nextOpen)
+        }}
+      >
         <DialogContent className="flex h-[min(900px,calc(100svh-2rem))] w-[calc(100vw-2rem)] max-w-6xl flex-col gap-0 overflow-hidden p-0">
           <DialogHeader className="shrink-0 bg-muted/35 px-5 py-4 sm:px-6 sm:py-5">
             <div className="flex items-center justify-between gap-4 pr-8">
@@ -245,16 +258,16 @@ export default function AdminDialog({
             <div className="shrink-0 px-5 pt-4 sm:px-6">
               <TabsList className="max-w-full justify-start overflow-x-auto">
                 <TabsTrigger value="users">Utilisateurs</TabsTrigger>
+                <TabsTrigger value="early-access">
+                  Accès anticipé
+                  {pendingUsers?.length ? (
+                    <Badge variant="secondary" className="ml-1">
+                      {pendingUsers.length}
+                    </Badge>
+                  ) : null}
+                </TabsTrigger>
                 {isSuperAdmin ? (
                   <>
-                    <TabsTrigger value="early-access">
-                      Accès anticipé
-                      {pendingUsers?.length ? (
-                        <Badge variant="secondary" className="ml-1">
-                          {pendingUsers.length}
-                        </Badge>
-                      ) : null}
-                    </TabsTrigger>
                     <TabsTrigger value="feedback">
                       Feedback
                       {overview.feedback.some(
@@ -269,6 +282,7 @@ export default function AdminDialog({
                         <span className="ml-1 size-2 rounded-full bg-destructive" />
                       ) : null}
                     </TabsTrigger>
+                    <TabsTrigger value="models">Modèles</TabsTrigger>
                   </>
                 ) : null}
               </TabsList>
@@ -347,7 +361,7 @@ export default function AdminDialog({
                               ) : null}
                             </dl>
                           </div>
-                          {isSuperAdmin ? (
+                          {canManageSelected ? (
                             <div className="flex flex-wrap gap-2">
                               {selectedUser.role !== "admin" &&
                               selectedUser.accessStatus !== "approved" ? (
@@ -383,34 +397,32 @@ export default function AdminDialog({
                                   <UserX /> Refuser l’accès
                                 </Button>
                               ) : null}
+                              {isSuperAdmin || selectedUser.role !== "admin" ? (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  disabled={acting}
+                                  onClick={() =>
+                                    patch({
+                                      action: "set_role",
+                                      userId: selectedUser.id,
+                                      role:
+                                        selectedUser.role === "admin"
+                                          ? "user"
+                                          : "admin",
+                                    })
+                                  }
+                                >
+                                  <UserCog />
+                                  {selectedUser.role === "admin"
+                                    ? "Retirer admin"
+                                    : "Rendre admin"}
+                                </Button>
+                              ) : null}
                               <Button
                                 variant="outline"
                                 size="sm"
-                                disabled={
-                                  acting || selectedUser.id === currentUserId
-                                }
-                                onClick={() =>
-                                  patch({
-                                    action: "set_role",
-                                    userId: selectedUser.id,
-                                    role:
-                                      selectedUser.role === "admin"
-                                        ? "user"
-                                        : "admin",
-                                  })
-                                }
-                              >
-                                <UserCog />
-                                {selectedUser.role === "admin"
-                                  ? "Retirer admin"
-                                  : "Rendre admin"}
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                disabled={
-                                  acting || selectedUser.id === currentUserId
-                                }
+                                disabled={acting || !canManageSelected}
                                 onClick={() =>
                                   patch({
                                     action: "set_disabled",
@@ -431,7 +443,7 @@ export default function AdminDialog({
                               <Button
                                 variant="destructive"
                                 size="sm"
-                                disabled={selectedUser.id === currentUserId}
+                                disabled={!canManageSelected}
                                 onClick={() =>
                                   setDeleting({
                                     type: "user",
@@ -683,9 +695,8 @@ export default function AdminDialog({
                                   >
                                     <a
                                       href={`/api/admin/files/${encodeURIComponent(file.id)}`}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      aria-label={`Ouvrir ${file.name}`}
+                                      download={file.name}
+                                      aria-label={`Télécharger ${file.name}`}
                                     >
                                       <Download />
                                     </a>
@@ -784,93 +795,90 @@ export default function AdminDialog({
               </div>
             </TabsContent>
 
+            <TabsContent
+              value="early-access"
+              className="min-h-0 flex-1 overflow-hidden p-0"
+            >
+              <ScrollArea className="h-full">
+                <div className="grid gap-3 p-5">
+                  <div>
+                    <h3 className="font-semibold">Demandes d’accès anticipé</h3>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Acceptez uniquement les personnes autorisées à ouvrir
+                      Lumy.
+                    </p>
+                  </div>
+                  {pendingUsers?.map((user) => (
+                    <article
+                      key={user.id}
+                      className="flex flex-wrap items-center gap-4 rounded-xl border border-border p-4"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold">
+                          {user.name}
+                        </p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {user.email}
+                        </p>
+                        {user.accessRequestedAt ? (
+                          <p className="mt-2 text-xs text-muted-foreground">
+                            Demande reçue le{" "}
+                            {formatDate(user.accessRequestedAt)}
+                          </p>
+                        ) : null}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          disabled={acting}
+                          onClick={() =>
+                            patch(
+                              {
+                                action: "early_access",
+                                userId: user.id,
+                                status: "approved",
+                              },
+                              user.id
+                            )
+                          }
+                        >
+                          <UserCheck /> Accepter
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={acting}
+                          onClick={() =>
+                            patch(
+                              {
+                                action: "early_access",
+                                userId: user.id,
+                                status: "rejected",
+                              },
+                              user.id
+                            )
+                          }
+                        >
+                          <UserX /> Refuser
+                        </Button>
+                      </div>
+                    </article>
+                  ))}
+                  {!pendingUsers?.length ? (
+                    <div className="rounded-xl bg-muted/40 px-5 py-8 text-center">
+                      <p className="text-sm font-medium">
+                        Aucune demande en attente
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Les nouvelles demandes apparaîtront ici.
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
+              </ScrollArea>
+            </TabsContent>
             {isSuperAdmin ? (
               <>
-                <TabsContent
-                  value="early-access"
-                  className="min-h-0 flex-1 overflow-hidden p-0"
-                >
-                  <ScrollArea className="h-full">
-                    <div className="grid gap-3 p-5">
-                      <div>
-                        <h3 className="font-semibold">
-                          Demandes d’accès anticipé
-                        </h3>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          Acceptez uniquement les personnes autorisées à ouvrir
-                          Lumy.
-                        </p>
-                      </div>
-                      {pendingUsers?.map((user) => (
-                        <article
-                          key={user.id}
-                          className="flex flex-wrap items-center gap-4 rounded-xl border border-border p-4"
-                        >
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-semibold">
-                              {user.name}
-                            </p>
-                            <p className="truncate text-xs text-muted-foreground">
-                              {user.email}
-                            </p>
-                            {user.accessRequestedAt ? (
-                              <p className="mt-2 text-xs text-muted-foreground">
-                                Demande reçue le{" "}
-                                {formatDate(user.accessRequestedAt)}
-                              </p>
-                            ) : null}
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            <Button
-                              size="sm"
-                              disabled={acting}
-                              onClick={() =>
-                                patch(
-                                  {
-                                    action: "early_access",
-                                    userId: user.id,
-                                    status: "approved",
-                                  },
-                                  user.id
-                                )
-                              }
-                            >
-                              <UserCheck /> Accepter
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              disabled={acting}
-                              onClick={() =>
-                                patch(
-                                  {
-                                    action: "early_access",
-                                    userId: user.id,
-                                    status: "rejected",
-                                  },
-                                  user.id
-                                )
-                              }
-                            >
-                              <UserX /> Refuser
-                            </Button>
-                          </div>
-                        </article>
-                      ))}
-                      {!pendingUsers?.length ? (
-                        <div className="rounded-xl bg-muted/40 px-5 py-8 text-center">
-                          <p className="text-sm font-medium">
-                            Aucune demande en attente
-                          </p>
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            Les nouvelles demandes apparaîtront ici.
-                          </p>
-                        </div>
-                      ) : null}
-                    </div>
-                  </ScrollArea>
-                </TabsContent>
-
                 <TabsContent
                   value="feedback"
                   className="min-h-0 flex-1 overflow-hidden p-0"
@@ -985,6 +993,14 @@ export default function AdminDialog({
                               >
                                 {incident.model}
                               </p>
+                              {incident.userId ? (
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  Utilisateur :{" "}
+                                  {overview.users.find(
+                                    (user) => user.id === incident.userId
+                                  )?.name ?? incident.userId}
+                                </p>
+                              ) : null}
                             </div>
                             <div className="text-right text-xs text-muted-foreground">
                               <p>
@@ -1030,6 +1046,132 @@ export default function AdminDialog({
                           <p className="mt-1 text-xs text-muted-foreground">
                             Les erreurs de fournisseurs apparaîtront ici sans
                             envoyer un e-mail à chaque occurrence.
+                          </p>
+                        </div>
+                      ) : null}
+                    </div>
+                  </ScrollArea>
+                </TabsContent>
+
+                <TabsContent
+                  value="models"
+                  className="min-h-0 flex-1 overflow-hidden p-0"
+                >
+                  <ScrollArea className="h-full">
+                    <div className="grid gap-4 p-5">
+                      <div>
+                        <h3 className="flex items-center gap-2 font-semibold">
+                          <Cpu className="size-4" /> Modèles et fournisseurs
+                        </h3>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          Les modèles sont regroupés par fournisseur. Une
+                          désactivation ne concerne jamais le même modèle chez
+                          un autre fournisseur.
+                        </p>
+                      </div>
+                      {overview.modelManagement.map((provider) => (
+                        <section
+                          key={provider.id}
+                          className="overflow-hidden rounded-xl border border-border"
+                        >
+                          <div className="flex flex-wrap items-center gap-3 bg-muted/40 p-4">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <h4 className="font-semibold">
+                                  {provider.label}
+                                </h4>
+                                <Badge variant="secondary">
+                                  {provider.incidentCount} incident
+                                  {provider.incidentCount > 1 ? "s" : ""}
+                                </Badge>
+                                {!provider.enabled ? (
+                                  <Badge variant="destructive">Désactivé</Badge>
+                                ) : null}
+                              </div>
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {provider.models.length} modèle
+                                {provider.models.length > 1 ? "s" : ""}
+                              </p>
+                            </div>
+                            <Button
+                              size="sm"
+                              variant={
+                                provider.enabled ? "outline" : "secondary"
+                              }
+                              disabled={acting}
+                              onClick={() =>
+                                patch({
+                                  action: "model_control",
+                                  provider: provider.id,
+                                  enabled: !provider.enabled,
+                                })
+                              }
+                            >
+                              <Power />
+                              {provider.enabled
+                                ? "Désactiver le fournisseur"
+                                : "Réactiver le fournisseur"}
+                            </Button>
+                          </div>
+                          <div className="divide-y divide-border">
+                            {provider.models.map((model) => (
+                              <div
+                                key={`${model.provider}:${model.id}`}
+                                className="flex flex-wrap items-center gap-3 p-4"
+                              >
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate text-sm font-medium">
+                                    {model.name}
+                                  </p>
+                                  <p
+                                    className="truncate text-xs text-muted-foreground"
+                                    title={model.id}
+                                  >
+                                    {model.id}
+                                  </p>
+                                </div>
+                                <Badge
+                                  variant={
+                                    model.incidentCount
+                                      ? "destructive"
+                                      : "secondary"
+                                  }
+                                >
+                                  {model.incidentCount} incident
+                                  {model.incidentCount > 1 ? "s" : ""}
+                                </Badge>
+                                <Button
+                                  size="sm"
+                                  variant={
+                                    model.enabled ? "outline" : "secondary"
+                                  }
+                                  disabled={acting || !provider.enabled}
+                                  onClick={() =>
+                                    patch({
+                                      action: "model_control",
+                                      provider: provider.id,
+                                      modelId: model.id,
+                                      enabled: !model.enabled,
+                                    })
+                                  }
+                                >
+                                  <Power />
+                                  {model.enabled ? "Désactiver" : "Réactiver"}
+                                </Button>
+                              </div>
+                            ))}
+                            {!provider.models.length ? (
+                              <p className="p-4 text-sm text-muted-foreground">
+                                Aucun modèle chargé pour ce fournisseur.
+                              </p>
+                            ) : null}
+                          </div>
+                        </section>
+                      ))}
+                      {!overview.modelManagement.length ? (
+                        <div className="rounded-xl bg-muted/40 px-5 py-8 text-center">
+                          <p className="text-sm font-medium">
+                            Aucun fournisseur configuré
                           </p>
                         </div>
                       ) : null}

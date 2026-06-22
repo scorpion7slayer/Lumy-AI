@@ -10,14 +10,21 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApiSupportRouteImport } from './routes/api.support'
 import { Route as ApiStateRouteImport } from './routes/api.state'
 import { Route as ApiProvidersRouteImport } from './routes/api.providers'
+import { Route as ApiNotificationsRouteImport } from './routes/api.notifications'
 import { Route as ApiModelsRouteImport } from './routes/api.models'
+import { Route as ApiGroupsRouteImport } from './routes/api.groups'
+import { Route as ApiGroupMessagesRouteImport } from './routes/api.group-messages'
+import { Route as ApiGroupInvitationsRouteImport } from './routes/api.group-invitations'
 import { Route as ApiFilesRouteImport } from './routes/api.files'
 import { Route as ApiFeedbackRouteImport } from './routes/api.feedback'
 import { Route as ApiEarlyAccessRouteImport } from './routes/api.early-access'
 import { Route as ApiDatabaseRouteImport } from './routes/api.database'
+import { Route as ApiConversationReferencesRouteImport } from './routes/api.conversation-references'
 import { Route as ApiChatRouteImport } from './routes/api.chat'
+import { Route as ApiAnnouncementsRouteImport } from './routes/api.announcements'
 import { Route as ApiAdminRouteImport } from './routes/api.admin'
 import { Route as ApiMemoryExtractRouteImport } from './routes/api.memory.extract'
 import { Route as ApiFilesFileIdRouteImport } from './routes/api.files.$fileId'
@@ -33,6 +40,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiSupportRoute = ApiSupportRouteImport.update({
+  id: '/api/support',
+  path: '/api/support',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiStateRoute = ApiStateRouteImport.update({
   id: '/api/state',
   path: '/api/state',
@@ -43,9 +55,29 @@ const ApiProvidersRoute = ApiProvidersRouteImport.update({
   path: '/api/providers',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiNotificationsRoute = ApiNotificationsRouteImport.update({
+  id: '/api/notifications',
+  path: '/api/notifications',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiModelsRoute = ApiModelsRouteImport.update({
   id: '/api/models',
   path: '/api/models',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiGroupsRoute = ApiGroupsRouteImport.update({
+  id: '/api/groups',
+  path: '/api/groups',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiGroupMessagesRoute = ApiGroupMessagesRouteImport.update({
+  id: '/api/group-messages',
+  path: '/api/group-messages',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiGroupInvitationsRoute = ApiGroupInvitationsRouteImport.update({
+  id: '/api/group-invitations',
+  path: '/api/group-invitations',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiFilesRoute = ApiFilesRouteImport.update({
@@ -68,9 +100,20 @@ const ApiDatabaseRoute = ApiDatabaseRouteImport.update({
   path: '/api/database',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiConversationReferencesRoute =
+  ApiConversationReferencesRouteImport.update({
+    id: '/api/conversation-references',
+    path: '/api/conversation-references',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiChatRoute = ApiChatRouteImport.update({
   id: '/api/chat',
   path: '/api/chat',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAnnouncementsRoute = ApiAnnouncementsRouteImport.update({
+  id: '/api/announcements',
+  path: '/api/announcements',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAdminRoute = ApiAdminRouteImport.update({
@@ -123,14 +166,21 @@ const ApiAdminFilesFileIdRoute = ApiAdminFilesFileIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/api/admin': typeof ApiAdminRouteWithChildren
+  '/api/announcements': typeof ApiAnnouncementsRoute
   '/api/chat': typeof ApiChatRoute
+  '/api/conversation-references': typeof ApiConversationReferencesRoute
   '/api/database': typeof ApiDatabaseRoute
   '/api/early-access': typeof ApiEarlyAccessRoute
   '/api/feedback': typeof ApiFeedbackRoute
   '/api/files': typeof ApiFilesRouteWithChildren
+  '/api/group-invitations': typeof ApiGroupInvitationsRoute
+  '/api/group-messages': typeof ApiGroupMessagesRoute
+  '/api/groups': typeof ApiGroupsRoute
   '/api/models': typeof ApiModelsRoute
+  '/api/notifications': typeof ApiNotificationsRoute
   '/api/providers': typeof ApiProvidersRoute
   '/api/state': typeof ApiStateRoute
+  '/api/support': typeof ApiSupportRoute
   '/api/auth/account': typeof ApiAuthAccountRoute
   '/api/auth/email-verification': typeof ApiAuthEmailVerificationRoute
   '/api/auth/login': typeof ApiAuthLoginRoute
@@ -143,14 +193,21 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/api/admin': typeof ApiAdminRouteWithChildren
+  '/api/announcements': typeof ApiAnnouncementsRoute
   '/api/chat': typeof ApiChatRoute
+  '/api/conversation-references': typeof ApiConversationReferencesRoute
   '/api/database': typeof ApiDatabaseRoute
   '/api/early-access': typeof ApiEarlyAccessRoute
   '/api/feedback': typeof ApiFeedbackRoute
   '/api/files': typeof ApiFilesRouteWithChildren
+  '/api/group-invitations': typeof ApiGroupInvitationsRoute
+  '/api/group-messages': typeof ApiGroupMessagesRoute
+  '/api/groups': typeof ApiGroupsRoute
   '/api/models': typeof ApiModelsRoute
+  '/api/notifications': typeof ApiNotificationsRoute
   '/api/providers': typeof ApiProvidersRoute
   '/api/state': typeof ApiStateRoute
+  '/api/support': typeof ApiSupportRoute
   '/api/auth/account': typeof ApiAuthAccountRoute
   '/api/auth/email-verification': typeof ApiAuthEmailVerificationRoute
   '/api/auth/login': typeof ApiAuthLoginRoute
@@ -164,14 +221,21 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/api/admin': typeof ApiAdminRouteWithChildren
+  '/api/announcements': typeof ApiAnnouncementsRoute
   '/api/chat': typeof ApiChatRoute
+  '/api/conversation-references': typeof ApiConversationReferencesRoute
   '/api/database': typeof ApiDatabaseRoute
   '/api/early-access': typeof ApiEarlyAccessRoute
   '/api/feedback': typeof ApiFeedbackRoute
   '/api/files': typeof ApiFilesRouteWithChildren
+  '/api/group-invitations': typeof ApiGroupInvitationsRoute
+  '/api/group-messages': typeof ApiGroupMessagesRoute
+  '/api/groups': typeof ApiGroupsRoute
   '/api/models': typeof ApiModelsRoute
+  '/api/notifications': typeof ApiNotificationsRoute
   '/api/providers': typeof ApiProvidersRoute
   '/api/state': typeof ApiStateRoute
+  '/api/support': typeof ApiSupportRoute
   '/api/auth/account': typeof ApiAuthAccountRoute
   '/api/auth/email-verification': typeof ApiAuthEmailVerificationRoute
   '/api/auth/login': typeof ApiAuthLoginRoute
@@ -186,14 +250,21 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/api/admin'
+    | '/api/announcements'
     | '/api/chat'
+    | '/api/conversation-references'
     | '/api/database'
     | '/api/early-access'
     | '/api/feedback'
     | '/api/files'
+    | '/api/group-invitations'
+    | '/api/group-messages'
+    | '/api/groups'
     | '/api/models'
+    | '/api/notifications'
     | '/api/providers'
     | '/api/state'
+    | '/api/support'
     | '/api/auth/account'
     | '/api/auth/email-verification'
     | '/api/auth/login'
@@ -206,14 +277,21 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/api/admin'
+    | '/api/announcements'
     | '/api/chat'
+    | '/api/conversation-references'
     | '/api/database'
     | '/api/early-access'
     | '/api/feedback'
     | '/api/files'
+    | '/api/group-invitations'
+    | '/api/group-messages'
+    | '/api/groups'
     | '/api/models'
+    | '/api/notifications'
     | '/api/providers'
     | '/api/state'
+    | '/api/support'
     | '/api/auth/account'
     | '/api/auth/email-verification'
     | '/api/auth/login'
@@ -226,14 +304,21 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/api/admin'
+    | '/api/announcements'
     | '/api/chat'
+    | '/api/conversation-references'
     | '/api/database'
     | '/api/early-access'
     | '/api/feedback'
     | '/api/files'
+    | '/api/group-invitations'
+    | '/api/group-messages'
+    | '/api/groups'
     | '/api/models'
+    | '/api/notifications'
     | '/api/providers'
     | '/api/state'
+    | '/api/support'
     | '/api/auth/account'
     | '/api/auth/email-verification'
     | '/api/auth/login'
@@ -247,14 +332,21 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ApiAdminRoute: typeof ApiAdminRouteWithChildren
+  ApiAnnouncementsRoute: typeof ApiAnnouncementsRoute
   ApiChatRoute: typeof ApiChatRoute
+  ApiConversationReferencesRoute: typeof ApiConversationReferencesRoute
   ApiDatabaseRoute: typeof ApiDatabaseRoute
   ApiEarlyAccessRoute: typeof ApiEarlyAccessRoute
   ApiFeedbackRoute: typeof ApiFeedbackRoute
   ApiFilesRoute: typeof ApiFilesRouteWithChildren
+  ApiGroupInvitationsRoute: typeof ApiGroupInvitationsRoute
+  ApiGroupMessagesRoute: typeof ApiGroupMessagesRoute
+  ApiGroupsRoute: typeof ApiGroupsRoute
   ApiModelsRoute: typeof ApiModelsRoute
+  ApiNotificationsRoute: typeof ApiNotificationsRoute
   ApiProvidersRoute: typeof ApiProvidersRoute
   ApiStateRoute: typeof ApiStateRoute
+  ApiSupportRoute: typeof ApiSupportRoute
   ApiAuthAccountRoute: typeof ApiAuthAccountRoute
   ApiAuthEmailVerificationRoute: typeof ApiAuthEmailVerificationRoute
   ApiAuthLoginRoute: typeof ApiAuthLoginRoute
@@ -272,6 +364,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/support': {
+      id: '/api/support'
+      path: '/api/support'
+      fullPath: '/api/support'
+      preLoaderRoute: typeof ApiSupportRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/state': {
       id: '/api/state'
       path: '/api/state'
@@ -286,11 +385,39 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiProvidersRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/notifications': {
+      id: '/api/notifications'
+      path: '/api/notifications'
+      fullPath: '/api/notifications'
+      preLoaderRoute: typeof ApiNotificationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/models': {
       id: '/api/models'
       path: '/api/models'
       fullPath: '/api/models'
       preLoaderRoute: typeof ApiModelsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/groups': {
+      id: '/api/groups'
+      path: '/api/groups'
+      fullPath: '/api/groups'
+      preLoaderRoute: typeof ApiGroupsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/group-messages': {
+      id: '/api/group-messages'
+      path: '/api/group-messages'
+      fullPath: '/api/group-messages'
+      preLoaderRoute: typeof ApiGroupMessagesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/group-invitations': {
+      id: '/api/group-invitations'
+      path: '/api/group-invitations'
+      fullPath: '/api/group-invitations'
+      preLoaderRoute: typeof ApiGroupInvitationsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/files': {
@@ -321,11 +448,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiDatabaseRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/conversation-references': {
+      id: '/api/conversation-references'
+      path: '/api/conversation-references'
+      fullPath: '/api/conversation-references'
+      preLoaderRoute: typeof ApiConversationReferencesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/chat': {
       id: '/api/chat'
       path: '/api/chat'
       fullPath: '/api/chat'
       preLoaderRoute: typeof ApiChatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/announcements': {
+      id: '/api/announcements'
+      path: '/api/announcements'
+      fullPath: '/api/announcements'
+      preLoaderRoute: typeof ApiAnnouncementsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/admin': {
@@ -421,14 +562,21 @@ const ApiFilesRouteWithChildren = ApiFilesRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ApiAdminRoute: ApiAdminRouteWithChildren,
+  ApiAnnouncementsRoute: ApiAnnouncementsRoute,
   ApiChatRoute: ApiChatRoute,
+  ApiConversationReferencesRoute: ApiConversationReferencesRoute,
   ApiDatabaseRoute: ApiDatabaseRoute,
   ApiEarlyAccessRoute: ApiEarlyAccessRoute,
   ApiFeedbackRoute: ApiFeedbackRoute,
   ApiFilesRoute: ApiFilesRouteWithChildren,
+  ApiGroupInvitationsRoute: ApiGroupInvitationsRoute,
+  ApiGroupMessagesRoute: ApiGroupMessagesRoute,
+  ApiGroupsRoute: ApiGroupsRoute,
   ApiModelsRoute: ApiModelsRoute,
+  ApiNotificationsRoute: ApiNotificationsRoute,
   ApiProvidersRoute: ApiProvidersRoute,
   ApiStateRoute: ApiStateRoute,
+  ApiSupportRoute: ApiSupportRoute,
   ApiAuthAccountRoute: ApiAuthAccountRoute,
   ApiAuthEmailVerificationRoute: ApiAuthEmailVerificationRoute,
   ApiAuthLoginRoute: ApiAuthLoginRoute,
