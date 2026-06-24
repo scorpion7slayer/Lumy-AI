@@ -1,6 +1,8 @@
 import { useState } from "react"
 import {
+  Bell,
   ChevronDown,
+  Headphones,
   Library,
   LogOut,
   MemoryStick,
@@ -54,11 +56,14 @@ type ChatSidebarProps = {
   onTogglePinned: (id: string) => void
   onOpenMemory: () => void
   onOpenLibrary: () => void
+  onOpenSupport: () => void
+  onOpenNotifications: () => void
   onOpenSettings: () => void
   onOpenFeedback: () => void
   onOpenAdmin: () => void
   onLogout: () => void
   user: AuthUser
+  unreadNotifications: number
   onCloseMobile?: () => void
 }
 
@@ -80,12 +85,12 @@ function ConversationRow({
   return (
     <div
       className={cn(
-        "group flex min-w-0 items-center rounded-lg pr-1 transition-colors",
+        "group grid w-full min-w-0 grid-cols-[minmax(0,1fr)_2rem] items-center overflow-hidden rounded-lg pr-1 transition-colors",
         active ? "bg-sidebar-accent" : "hover:bg-sidebar-accent/60"
       )}
     >
       <button
-        className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-[13px]"
+        className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden px-3 py-2 text-left text-[13px]"
         onClick={onSelect}
         type="button"
       >
@@ -99,13 +104,13 @@ function ConversationRow({
           <Button
             variant="ghost"
             size="icon-sm"
-            className="opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100"
+            className="shrink-0 opacity-70 group-focus-within:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100"
             aria-label={`Actions pour ${conversation.title}`}
           >
             <MoreHorizontal />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start">
+        <DropdownMenuContent align="end">
           <DropdownMenuGroup>
             <DropdownMenuItem onSelect={onRename}>
               <PencilLine />
@@ -136,11 +141,14 @@ export function ChatSidebar({
   onTogglePinned,
   onOpenMemory,
   onOpenLibrary,
+  onOpenSupport,
+  onOpenNotifications,
   onOpenSettings,
   onOpenFeedback,
   onOpenAdmin,
   onLogout,
   user,
+  unreadNotifications,
   onCloseMobile,
 }: ChatSidebarProps) {
   const [query, setQuery] = useState("")
@@ -188,21 +196,49 @@ export function ChatSidebar({
   return (
     <>
       <aside className="flex h-full min-h-0 flex-col bg-sidebar text-sidebar-foreground">
-        <div className="flex h-[80px] items-center justify-between px-6">
-          <div>
-            <LumyLogo className="h-11 w-40" />
-            <PoweredByZyranex />
+        <div className="flex min-h-[80px] items-center justify-between gap-3 px-6 py-3 max-sm:min-h-0 max-sm:px-5">
+          <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
+            <div className="min-w-0">
+              <LumyLogo className="h-11 w-40 max-sm:h-9 max-sm:w-32" />
+              <PoweredByZyranex />
+            </div>
+            <div className="flex shrink-0 items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={onOpenSupport}
+                aria-label="Ouvrir l’assistance"
+              >
+                <Headphones />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="relative"
+                onClick={onOpenNotifications}
+                aria-label={`${unreadNotifications} notification${unreadNotifications > 1 ? "s" : ""} non lue${unreadNotifications > 1 ? "s" : ""}`}
+              >
+                <Bell />
+                {unreadNotifications ? (
+                  <span className="t-badge" data-open="true">
+                    <span className="t-badge-dot text-destructive-foreground grid min-h-4 min-w-4 place-items-center rounded-full bg-destructive px-1 text-[9px] font-semibold">
+                      {Math.min(unreadNotifications, 99)}
+                    </span>
+                  </span>
+                ) : null}
+              </Button>
+              {onCloseMobile ? (
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={onCloseMobile}
+                  aria-label="Fermer la navigation"
+                >
+                  <PanelLeftClose />
+                </Button>
+              ) : null}
+            </div>
           </div>
-          {onCloseMobile ? (
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={onCloseMobile}
-              aria-label="Fermer la navigation"
-            >
-              <PanelLeftClose />
-            </Button>
-          ) : null}
         </div>
 
         <div className="px-5 pb-3">

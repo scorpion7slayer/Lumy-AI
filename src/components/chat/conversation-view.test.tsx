@@ -50,6 +50,8 @@ function renderView(
         onSend={vi.fn()}
         onStop={vi.fn()}
         onAddFiles={vi.fn()}
+        onRemoveFile={vi.fn()}
+        files={[]}
         userName="Test User"
       />
     </TooltipProvider>
@@ -130,6 +132,8 @@ describe("conversation view", () => {
           onSend={vi.fn()}
           onStop={vi.fn()}
           onAddFiles={vi.fn()}
+          onRemoveFile={vi.fn()}
+          files={[]}
           userName="Test User"
         />
       </TooltipProvider>
@@ -274,6 +278,8 @@ describe("conversation view", () => {
           onSend={vi.fn()}
           onStop={vi.fn()}
           onAddFiles={onAddFiles}
+          onRemoveFile={vi.fn()}
+          files={[]}
           userName="Test User"
         />
       </TooltipProvider>

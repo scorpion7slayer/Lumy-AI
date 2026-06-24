@@ -1,8 +1,6 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from "react"
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
 import {
   BookOpen,
-  Bell,
-  Headphones,
   Library,
   LoaderCircle,
   Menu,
@@ -54,6 +52,7 @@ import { Separator } from "@/components/ui/separator"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
+import { showLumyBrowserNotification } from "@/lib/browser-notifications"
 import { estimateTokens, useChatStore } from "@/hooks/use-chat-store"
 
 const AdminDialog = lazy(() => import("@/components/admin/admin-dialog"))
@@ -62,6 +61,14 @@ const CollaborationDialog = lazy(() =>
     default: module.CollaborationDialog,
   }))
 )
+
+type BrowserNotificationItem = {
+  id: string
+  title: string
+  body: string
+  targetUrl: string | null
+  readAt: string | null
+}
 
 function MemoryDialog({
   open,
@@ -281,6 +288,8 @@ export function ChatApp({
   const [unreadNotifications, setUnreadNotifications] = useState(0)
   const [modelsReady, setModelsReady] = useState(false)
   const [themeMounted, setThemeMounted] = useState(false)
+  const browserNotificationIdsRef = useRef<Set<string>>(new Set())
+  const browserNotificationsReadyRef = useRef(false)
   const { resolvedTheme, setTheme } = useTheme()
   const handleModelsDetected = useCallback(() => setModelsReady(true), [])
   const latestRoutedContextWindow = chat.activeConversation?.messages
@@ -314,13 +323,72 @@ export function ChatApp({
     const updateNotifications = async () => {
       const response = await fetch("/api/notifications")
       if (!response.ok) return
-      const payload = (await response.json()) as { unreadCount?: number }
+      const payload = (await response.json()) as {
+        unreadCount?: number
+        notifications?: BrowserNotificationItem[]
+      }
       setUnreadNotifications(payload.unreadCount ?? 0)
+      const notifications = payload.notifications ?? []
+      const storedKey = `lumy.browser-notifications.seen.v1:${user.id}`
+      if (!browserNotificationsReadyRef.current) {
+        browserNotificationsReadyRef.current = true
+        try {
+          const stored = window.localStorage.getItem(storedKey)
+          const ids = stored ? (JSON.parse(stored) as unknown) : []
+          if (Array.isArray(ids)) {
+            browserNotificationIdsRef.current = new Set(
+              ids.filter((id): id is string => typeof id === "string")
+            )
+          }
+        } catch {
+          browserNotificationIdsRef.current = new Set()
+        }
+        notifications.forEach((notification) =>
+          browserNotificationIdsRef.current.add(notification.id)
+        )
+        try {
+          window.localStorage.setItem(
+            storedKey,
+            JSON.stringify([...browserNotificationIdsRef.current].slice(-200))
+          )
+        } catch {
+          // Browser notification dedupe can remain in memory only.
+        }
+        return
+      }
+      if (!("Notification" in window) || Notification.permission !== "granted")
+        return
+      const freshUnread = notifications
+        .filter(
+          (notification) =>
+            !notification.readAt &&
+            !browserNotificationIdsRef.current.has(notification.id)
+        )
+        .slice(0, 3)
+      for (const notification of freshUnread) {
+        browserNotificationIdsRef.current.add(notification.id)
+        await showLumyBrowserNotification({
+          title: notification.title,
+          body: notification.body,
+          tag: notification.id,
+          targetUrl: notification.targetUrl,
+        })
+      }
+      if (freshUnread.length) {
+        try {
+          window.localStorage.setItem(
+            storedKey,
+            JSON.stringify([...browserNotificationIdsRef.current].slice(-200))
+          )
+        } catch {
+          // Browser notification dedupe can remain in memory only.
+        }
+      }
     }
     void updateNotifications()
     const timer = window.setInterval(updateNotifications, 15_000)
     return () => window.clearInterval(timer)
-  }, [collaborationOpen])
+  }, [collaborationOpen, user.id])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -363,11 +431,22 @@ export function ChatApp({
       onTogglePinned={chat.togglePinned}
       onOpenMemory={() => setMemoryOpen(true)}
       onOpenLibrary={() => setLibraryOpen(true)}
+      onOpenSupport={() => {
+        setCollaborationTab("support")
+        setCollaborationOpen(true)
+        setLeftOpen(false)
+      }}
+      onOpenNotifications={() => {
+        setCollaborationTab("notifications")
+        setCollaborationOpen(true)
+        setLeftOpen(false)
+      }}
       onOpenSettings={() => setSettingsOpen(true)}
       onOpenFeedback={() => setFeedbackOpen(true)}
       onOpenAdmin={() => setAdminOpen(true)}
       onLogout={logout}
       user={user}
+      unreadNotifications={unreadNotifications}
       onCloseMobile={leftOpen ? () => setLeftOpen(false) : undefined}
     />
   )
@@ -402,39 +481,18 @@ export function ChatApp({
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => {
-              setCollaborationTab("support")
-              setCollaborationOpen(true)
-            }}
-            aria-label="Ouvrir l’assistance"
-          >
-            <Headphones />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="relative"
-            onClick={() => {
-              setCollaborationTab("notifications")
-              setCollaborationOpen(true)
-            }}
-            aria-label={`${unreadNotifications} notification${unreadNotifications > 1 ? "s" : ""} non lue${unreadNotifications > 1 ? "s" : ""}`}
-          >
-            <Bell />
-            {unreadNotifications ? (
-              <span className="text-destructive-foreground absolute top-1 right-1 grid min-h-4 min-w-4 place-items-center rounded-full bg-destructive px-1 text-[9px] font-semibold">
-                {Math.min(unreadNotifications, 99)}
-              </span>
-            ) : null}
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="min-[901px]:hidden"
+            className="relative min-[901px]:hidden"
             onClick={() => setLeftOpen(true)}
             aria-label="Ouvrir la navigation"
           >
             <Menu />
+            {unreadNotifications ? (
+              <span className="t-badge" data-open="true">
+                <span className="t-badge-dot text-destructive-foreground grid min-h-4 min-w-4 place-items-center rounded-full bg-destructive px-1 text-[9px] font-semibold">
+                  {Math.min(unreadNotifications, 99)}
+                </span>
+              </span>
+            ) : null}
           </Button>
           <h1
             className="min-w-0 flex-1 truncate font-editorial text-lg font-semibold"
@@ -455,7 +513,7 @@ export function ChatApp({
               disabled
             >
               <LoaderCircle className="animate-spin" data-icon="inline-start" />
-              Chargement…
+              <span className="max-sm:sr-only">Chargement…</span>
             </Button>
           )}
           <Button
@@ -514,6 +572,10 @@ export function ChatApp({
             onSend={chat.sendMessage}
             onStop={chat.stopGeneration}
             onAddFiles={chat.addFiles}
+            onRemoveFile={chat.removeFile}
+            files={chat.state.files.filter(
+              (file) => file.conversationId === chat.activeConversation?.id
+            )}
             userName={user.name}
             userId={user.id}
           />
@@ -527,7 +589,7 @@ export function ChatApp({
       <Sheet open={leftOpen} onOpenChange={setLeftOpen}>
         <SheetContent
           side="left"
-          className="w-[300px] p-0"
+          className="w-[min(360px,calc(100vw-32px))] p-0"
           showCloseButton={false}
         >
           <SheetTitle className="sr-only">Navigation</SheetTitle>

@@ -2,7 +2,10 @@
 
 import { cleanup, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it } from "vitest"
-import { MarkdownMessage } from "@/components/chat/markdown-message"
+import {
+  MarkdownMessage,
+  withFlagFallbackCodes,
+} from "@/components/chat/markdown-message"
 import { TooltipProvider } from "@/components/ui/tooltip"
 
 afterEach(cleanup)
@@ -56,5 +59,10 @@ describe("MarkdownMessage", () => {
         (fragment) => getComputedStyle(fragment).position !== "absolute"
       )
     ).toBe(true)
+  })
+
+  it("adds a text fallback after flag emojis when no country code follows", () => {
+    expect(withFlagFallbackCodes("Brésil 🇧🇷")).toBe("Brésil 🇧🇷 BR")
+    expect(withFlagFallbackCodes("Suisse 🇨🇭 CH")).toBe("Suisse 🇨🇭 CH")
   })
 })

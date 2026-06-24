@@ -3,6 +3,7 @@ import { assertSameOrigin, requireRequestUser } from "@/lib/auth.server"
 import {
   consumeRateLimit,
   createGroupChat,
+  deleteGroupChat,
   listGroupChats,
 } from "@/lib/db.server"
 import { readLimitedJsonObject } from "@/lib/request-guards.server"
@@ -42,6 +43,25 @@ export const Route = createFileRoute("/api/groups")({
         return Response.json(
           await createGroupChat({ ownerUserId: user.id, title }),
           { status: 201 }
+        )
+      },
+      DELETE: async ({ request }) => {
+        assertSameOrigin(request)
+        const user = await requireRequestUser(request)
+        const groupId = new URL(request.url).searchParams.get("groupId")?.trim()
+        if (!groupId) {
+          return Response.json({ error: "Groupe requis." }, { status: 400 })
+        }
+        const result = await deleteGroupChat({ userId: user.id, groupId })
+        if (result.ok) return new Response(null, { status: 204 })
+        return Response.json(
+          {
+            error:
+              result.reason === "forbidden"
+                ? "Seul le propriétaire peut supprimer ce groupe."
+                : "Groupe introuvable.",
+          },
+          { status: result.reason === "forbidden" ? 403 : 404 }
         )
       },
     },

@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import {
   ArrowLeft,
   Ban,
   Bug,
   CheckCircle2,
+  ChevronDown,
   Clock3,
   Cpu,
   Download,
@@ -35,7 +36,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
@@ -108,6 +118,13 @@ export default function AdminDialog({
   const [loading, setLoading] = useState(false)
   const [acting, setActing] = useState(false)
   const [deleting, setDeleting] = useState<DeleteTarget | null>(null)
+  const [modelQuery, setModelQuery] = useState("")
+  const [modelProviderFilter, setModelProviderFilter] = useState("all")
+  const [modelStatusFilter, setModelStatusFilter] = useState("all")
+  const [modelSort, setModelSort] = useState("incidents")
+  const [collapsedProviders, setCollapsedProviders] = useState<Set<string>>(
+    () => new Set()
+  )
 
   const load = useCallback(async (userId?: string) => {
     setLoading(true)
@@ -217,6 +234,61 @@ export default function AdminDialog({
     (user) => user.role !== "admin" && user.accessStatus === "pending"
   )
   const incidents: AdminIncident[] = overview?.incidents ?? []
+  const modelProviders = overview?.modelManagement ?? []
+  const modelProviderOptions = modelProviders.map((provider) => ({
+    id: provider.id,
+    label: provider.label,
+  }))
+  const filteredModelManagement = useMemo(() => {
+    const query = modelQuery.trim().toLocaleLowerCase("fr")
+    return modelProviders
+      .filter(
+        (provider) =>
+          modelProviderFilter === "all" || provider.id === modelProviderFilter
+      )
+      .map((provider) => {
+        const models = provider.models
+          .filter((model) => {
+            const matchesQuery =
+              !query ||
+              model.name.toLocaleLowerCase("fr").includes(query) ||
+              model.id.toLocaleLowerCase("fr").includes(query)
+            const matchesStatus =
+              modelStatusFilter === "all" ||
+              (modelStatusFilter === "enabled" && model.enabled) ||
+              (modelStatusFilter === "disabled" && !model.enabled) ||
+              (modelStatusFilter === "incidents" && model.incidentCount > 0) ||
+              (modelStatusFilter === "auto" &&
+                !model.enabled &&
+                model.incidentCount > 5)
+            return matchesQuery && matchesStatus
+          })
+          .sort((a, b) => {
+            if (modelSort === "name") return a.name.localeCompare(b.name, "fr")
+            if (modelSort === "status")
+              return Number(b.enabled) - Number(a.enabled)
+            return (
+              b.incidentCount - a.incidentCount ||
+              a.name.localeCompare(b.name, "fr")
+            )
+          })
+        return {
+          ...provider,
+          models,
+          incidentCount: models.reduce(
+            (total, model) => total + model.incidentCount,
+            0
+          ),
+        }
+      })
+      .filter((provider) => provider.models.length > 0 || !query)
+  }, [
+    modelProviderFilter,
+    modelProviders,
+    modelQuery,
+    modelSort,
+    modelStatusFilter,
+  ])
 
   return (
     <>
@@ -1066,112 +1138,228 @@ export default function AdminDialog({
                         <p className="mt-1 text-sm text-muted-foreground">
                           Les modèles sont regroupés par fournisseur. Une
                           désactivation ne concerne jamais le même modèle chez
-                          un autre fournisseur.
+                          un autre fournisseur. Au-delà de 5 incidents actifs,
+                          le modèle est désactivé automatiquement.
                         </p>
                       </div>
-                      {overview.modelManagement.map((provider) => (
-                        <section
-                          key={provider.id}
-                          className="overflow-hidden rounded-xl border border-border"
+                      <div className="grid gap-2 rounded-xl border border-border bg-muted/25 p-3 md:grid-cols-[minmax(180px,1fr)_180px_170px_170px]">
+                        <Input
+                          value={modelQuery}
+                          onChange={(event) =>
+                            setModelQuery(event.target.value)
+                          }
+                          placeholder="Rechercher un modèle"
+                          aria-label="Rechercher un modèle"
+                        />
+                        <Select
+                          value={modelProviderFilter}
+                          onValueChange={setModelProviderFilter}
                         >
-                          <div className="flex flex-wrap items-center gap-3 bg-muted/40 p-4">
-                            <div className="min-w-0 flex-1">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <h4 className="font-semibold">
+                          <SelectTrigger aria-label="Filtrer par fournisseur">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectGroup>
+                              <SelectItem value="all">
+                                Tous les fournisseurs
+                              </SelectItem>
+                              {modelProviderOptions.map((provider) => (
+                                <SelectItem
+                                  key={provider.id}
+                                  value={provider.id}
+                                >
                                   {provider.label}
-                                </h4>
-                                <Badge variant="secondary">
-                                  {provider.incidentCount} incident
-                                  {provider.incidentCount > 1 ? "s" : ""}
-                                </Badge>
-                                {!provider.enabled ? (
-                                  <Badge variant="destructive">Désactivé</Badge>
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
+                        <Select
+                          value={modelStatusFilter}
+                          onValueChange={setModelStatusFilter}
+                        >
+                          <SelectTrigger aria-label="Filtrer par état">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectGroup>
+                              <SelectItem value="all">
+                                Tous les états
+                              </SelectItem>
+                              <SelectItem value="enabled">Actifs</SelectItem>
+                              <SelectItem value="disabled">
+                                Désactivés
+                              </SelectItem>
+                              <SelectItem value="incidents">
+                                Avec incidents
+                              </SelectItem>
+                              <SelectItem value="auto">
+                                Auto-désactivés
+                              </SelectItem>
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
+                        <Select value={modelSort} onValueChange={setModelSort}>
+                          <SelectTrigger aria-label="Trier les modèles">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectGroup>
+                              <SelectItem value="incidents">
+                                Incidents d’abord
+                              </SelectItem>
+                              <SelectItem value="name">Nom A-Z</SelectItem>
+                              <SelectItem value="status">
+                                Actifs d’abord
+                              </SelectItem>
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {filteredModelManagement.map((provider) => {
+                        const collapsed = collapsedProviders.has(provider.id)
+                        return (
+                          <section
+                            key={provider.id}
+                            className="overflow-hidden rounded-xl border border-border"
+                          >
+                            <div className="flex flex-wrap items-center gap-3 bg-muted/40 p-4">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon-sm"
+                                onClick={() =>
+                                  setCollapsedProviders((current) => {
+                                    const next = new Set(current)
+                                    if (next.has(provider.id))
+                                      next.delete(provider.id)
+                                    else next.add(provider.id)
+                                    return next
+                                  })
+                                }
+                                aria-label={
+                                  collapsed
+                                    ? `Déplier ${provider.label}`
+                                    : `Replier ${provider.label}`
+                                }
+                              >
+                                <ChevronDown
+                                  className={cn(
+                                    "transition-transform",
+                                    collapsed && "-rotate-90"
+                                  )}
+                                />
+                              </Button>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <h4 className="font-semibold">
+                                    {provider.label}
+                                  </h4>
+                                  <Badge variant="secondary">
+                                    {provider.incidentCount} incident
+                                    {provider.incidentCount > 1 ? "s" : ""}
+                                  </Badge>
+                                  {!provider.enabled ? (
+                                    <Badge variant="destructive">
+                                      Désactivé
+                                    </Badge>
+                                  ) : null}
+                                </div>
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  {provider.models.length} modèle
+                                  {provider.models.length > 1 ? "s" : ""}
+                                </p>
+                              </div>
+                              <Button
+                                size="sm"
+                                variant={
+                                  provider.enabled ? "outline" : "secondary"
+                                }
+                                disabled={acting}
+                                onClick={() =>
+                                  patch({
+                                    action: "model_control",
+                                    provider: provider.id,
+                                    enabled: !provider.enabled,
+                                  })
+                                }
+                              >
+                                <Power />
+                                {provider.enabled
+                                  ? "Désactiver le fournisseur"
+                                  : "Réactiver le fournisseur"}
+                              </Button>
+                            </div>
+                            {!collapsed ? (
+                              <div className="divide-y divide-border">
+                                {provider.models.map((model) => (
+                                  <div
+                                    key={`${model.provider}:${model.id}`}
+                                    className="flex flex-wrap items-center gap-3 p-4"
+                                  >
+                                    <div className="min-w-0 flex-1">
+                                      <p className="truncate text-sm font-medium">
+                                        {model.name}
+                                      </p>
+                                      <p
+                                        className="truncate text-xs text-muted-foreground"
+                                        title={model.id}
+                                      >
+                                        {model.id}
+                                      </p>
+                                    </div>
+                                    <Badge
+                                      variant={
+                                        model.incidentCount
+                                          ? "destructive"
+                                          : "secondary"
+                                      }
+                                    >
+                                      {model.incidentCount} incident
+                                      {model.incidentCount > 1 ? "s" : ""}
+                                    </Badge>
+                                    {!model.enabled &&
+                                    model.incidentCount > 5 ? (
+                                      <Badge variant="destructive">
+                                        Auto-désactivé
+                                      </Badge>
+                                    ) : null}
+                                    <Button
+                                      size="sm"
+                                      variant={
+                                        model.enabled ? "outline" : "secondary"
+                                      }
+                                      disabled={acting || !provider.enabled}
+                                      onClick={() =>
+                                        patch({
+                                          action: "model_control",
+                                          provider: provider.id,
+                                          modelId: model.id,
+                                          enabled: !model.enabled,
+                                        })
+                                      }
+                                    >
+                                      <Power />
+                                      {model.enabled
+                                        ? "Désactiver"
+                                        : "Réactiver"}
+                                    </Button>
+                                  </div>
+                                ))}
+                                {!provider.models.length ? (
+                                  <p className="p-4 text-sm text-muted-foreground">
+                                    Aucun modèle chargé pour ce fournisseur.
+                                  </p>
                                 ) : null}
                               </div>
-                              <p className="mt-1 text-xs text-muted-foreground">
-                                {provider.models.length} modèle
-                                {provider.models.length > 1 ? "s" : ""}
-                              </p>
-                            </div>
-                            <Button
-                              size="sm"
-                              variant={
-                                provider.enabled ? "outline" : "secondary"
-                              }
-                              disabled={acting}
-                              onClick={() =>
-                                patch({
-                                  action: "model_control",
-                                  provider: provider.id,
-                                  enabled: !provider.enabled,
-                                })
-                              }
-                            >
-                              <Power />
-                              {provider.enabled
-                                ? "Désactiver le fournisseur"
-                                : "Réactiver le fournisseur"}
-                            </Button>
-                          </div>
-                          <div className="divide-y divide-border">
-                            {provider.models.map((model) => (
-                              <div
-                                key={`${model.provider}:${model.id}`}
-                                className="flex flex-wrap items-center gap-3 p-4"
-                              >
-                                <div className="min-w-0 flex-1">
-                                  <p className="truncate text-sm font-medium">
-                                    {model.name}
-                                  </p>
-                                  <p
-                                    className="truncate text-xs text-muted-foreground"
-                                    title={model.id}
-                                  >
-                                    {model.id}
-                                  </p>
-                                </div>
-                                <Badge
-                                  variant={
-                                    model.incidentCount
-                                      ? "destructive"
-                                      : "secondary"
-                                  }
-                                >
-                                  {model.incidentCount} incident
-                                  {model.incidentCount > 1 ? "s" : ""}
-                                </Badge>
-                                <Button
-                                  size="sm"
-                                  variant={
-                                    model.enabled ? "outline" : "secondary"
-                                  }
-                                  disabled={acting || !provider.enabled}
-                                  onClick={() =>
-                                    patch({
-                                      action: "model_control",
-                                      provider: provider.id,
-                                      modelId: model.id,
-                                      enabled: !model.enabled,
-                                    })
-                                  }
-                                >
-                                  <Power />
-                                  {model.enabled ? "Désactiver" : "Réactiver"}
-                                </Button>
-                              </div>
-                            ))}
-                            {!provider.models.length ? (
-                              <p className="p-4 text-sm text-muted-foreground">
-                                Aucun modèle chargé pour ce fournisseur.
-                              </p>
                             ) : null}
-                          </div>
-                        </section>
-                      ))}
-                      {!overview.modelManagement.length ? (
+                          </section>
+                        )
+                      })}
+                      {!filteredModelManagement.length ? (
                         <div className="rounded-xl bg-muted/40 px-5 py-8 text-center">
                           <p className="text-sm font-medium">
-                            Aucun fournisseur configuré
+                            Aucun modèle ne correspond aux filtres
                           </p>
                         </div>
                       ) : null}

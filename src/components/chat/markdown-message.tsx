@@ -9,6 +9,24 @@ function codeFenceInfo(content: string) {
   )
 }
 
+const regionalIndicatorBase = 0x1f1e6
+
+export function withFlagFallbackCodes(content: string) {
+  return content.replace(
+    /([\u{1F1E6}-\u{1F1FF}]{2})(?!\s*[A-Z]{2}\b)/gu,
+    (flag) => {
+      const codePoints = Array.from(flag).map(
+        (char) => char.codePointAt(0)! - regionalIndicatorBase
+      )
+      if (codePoints.some((point) => point < 0 || point > 25)) return flag
+      const code = codePoints
+        .map((point) => String.fromCharCode(65 + point))
+        .join("")
+      return `${flag} ${code}`
+    }
+  )
+}
+
 export function MarkdownMessage({
   content,
   streaming,
@@ -124,7 +142,7 @@ export function MarkdownMessage({
         },
       }}
     >
-      {content}
+      {withFlagFallbackCodes(content)}
     </ReactMarkdown>
   )
 }

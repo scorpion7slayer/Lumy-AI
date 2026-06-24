@@ -48,7 +48,14 @@ export type ChatMessage = {
     conversationId: string
     title: string
   }
+  files?: Array<{
+    id: string
+    name: string
+    size: number
+    type: string
+  }>
   webSearchExecuted?: boolean
+  webSearchConfirmed?: boolean
   webSources?: WebSource[]
 }
 
@@ -82,6 +89,8 @@ export type SessionFile = {
   name: string
   size: number
   type: string
+  pending?: boolean
+  messageId?: string
 }
 
 export type PersistedChatState = {

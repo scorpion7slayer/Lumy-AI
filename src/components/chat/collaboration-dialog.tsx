@@ -6,6 +6,7 @@ import {
   Megaphone,
   Plus,
   Send,
+  Trash2,
   UserPlus,
   Users,
   X,
@@ -19,13 +20,20 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
+import {
+  browserNotificationsSupported,
+  requestLumyNotificationPermission,
+  showLumyBrowserNotification,
+} from "@/lib/browser-notifications"
 import { cn } from "@/lib/utils"
 
 type NotificationItem = {
@@ -123,6 +131,12 @@ export function CollaborationDialog({
   const [handoffAdminId, setHandoffAdminId] = useState("")
   const [announcementTitle, setAnnouncementTitle] = useState("")
   const [announcementBody, setAnnouncementBody] = useState("")
+  const [pendingGroupInviteToken, setPendingGroupInviteToken] = useState<
+    string | null
+  >(null)
+  const [groupToDelete, setGroupToDelete] = useState<Group | null>(null)
+  const [browserNotificationPermission, setBrowserNotificationPermission] =
+    useState<NotificationPermission | "unsupported">("unsupported")
 
   const load = useCallback(async () => {
     const [notificationData, announcementData, groupData, supportData] =
@@ -160,6 +174,9 @@ export function CollaborationDialog({
 
   useEffect(() => {
     if (!open) return
+    setBrowserNotificationPermission(
+      browserNotificationsSupported() ? Notification.permission : "unsupported"
+    )
     void load().catch((error) =>
       toast.error(
         error instanceof Error ? error.message : "Chargement impossible."
@@ -196,26 +213,10 @@ export function CollaborationDialog({
     }
     const token = params.get("groupInvite")
     if (!token) return
-    const accept = window.confirm(
-      "Accepter l’invitation à cette conversation de groupe ?"
+    setPendingGroupInviteToken((current) =>
+      current === token ? current : token
     )
-    void api<{ groupId?: string }>("/api/group-invitations", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token, action: accept ? "accept" : "decline" }),
-    })
-      .then(async (result) => {
-        window.history.replaceState({}, "", window.location.pathname)
-        if (result.groupId) setSelectedGroupId(result.groupId)
-        await load()
-        toast.success(accept ? "Invitation acceptée." : "Invitation refusée.")
-      })
-      .catch((error) =>
-        toast.error(
-          error instanceof Error ? error.message : "Invitation invalide."
-        )
-      )
-  }, [load, loadGroupMessages, loadSupportMessages, open])
+  }, [loadGroupMessages, loadSupportMessages, open])
 
   const action = async (callback: () => Promise<unknown>, success: string) => {
     setBusy(true)
@@ -227,6 +228,64 @@ export function CollaborationDialog({
       toast.error(error instanceof Error ? error.message : "Action impossible.")
     } finally {
       setBusy(false)
+    }
+  }
+
+  const answerGroupInvite = async (accept: boolean) => {
+    const token = pendingGroupInviteToken
+    if (!token) return
+    setPendingGroupInviteToken(null)
+    await action(
+      async () => {
+        const result = await api<{ groupId?: string }>(
+          "/api/group-invitations",
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              token,
+              action: accept ? "accept" : "decline",
+            }),
+          }
+        )
+        window.history.replaceState({}, "", window.location.pathname)
+        if (result.groupId) {
+          setSelectedGroupId(result.groupId)
+          await loadGroupMessages(result.groupId)
+        }
+      },
+      accept ? "Invitation acceptée." : "Invitation refusée."
+    )
+  }
+
+  const sendTestBrowserNotification = useCallback(async () => {
+    const sent = await showLumyBrowserNotification({
+      title: "Notifications Lumy activées",
+      body: "Les alertes Lumy apparaîtront ici quand quelque chose arrive.",
+      tag: "lumy-notification-test",
+      targetUrl: "/",
+    })
+    if (sent) {
+      toast.success("Notification test envoyée.")
+    } else {
+      toast.error("Notification système impossible sur ce navigateur.")
+    }
+  }, [])
+
+  const requestBrowserNotifications = async () => {
+    const permission = await requestLumyNotificationPermission()
+    setBrowserNotificationPermission(permission)
+    if (permission === "granted") {
+      toast.success("Notifications navigateur activées.")
+      await sendTestBrowserNotification()
+    } else if (permission === "unsupported") {
+      toast.error("Ce navigateur ne prend pas en charge les notifications.")
+    } else {
+      toast.error(
+        permission === "denied"
+          ? "Notifications bloquées dans les réglages du navigateur."
+          : "Les notifications navigateur ne sont pas autorisées."
+      )
     }
   }
 
@@ -618,37 +677,49 @@ export function CollaborationDialog({
                         {selectedGroup.title}
                       </p>
                       {selectedGroup.role === "owner" ? (
-                        <form
-                          className="flex gap-2"
-                          onSubmit={(event) => {
-                            event.preventDefault()
-                            if (!inviteEmail.trim()) return
-                            void action(async () => {
-                              await api("/api/group-invitations", {
-                                method: "POST",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({
-                                  groupId: selectedGroup.id,
-                                  email: inviteEmail,
-                                }),
-                              })
-                              setInviteEmail("")
-                            }, "Invitation envoyée par e-mail.")
-                          }}
-                        >
-                          <Input
-                            type="email"
-                            value={inviteEmail}
-                            onChange={(event) =>
-                              setInviteEmail(event.target.value)
-                            }
-                            placeholder="adresse@exemple.fr"
-                            className="w-52"
-                          />
-                          <Button size="sm" variant="outline">
-                            <UserPlus /> Inviter
+                        <>
+                          <form
+                            className="flex gap-2"
+                            onSubmit={(event) => {
+                              event.preventDefault()
+                              if (!inviteEmail.trim()) return
+                              void action(async () => {
+                                await api("/api/group-invitations", {
+                                  method: "POST",
+                                  headers: {
+                                    "Content-Type": "application/json",
+                                  },
+                                  body: JSON.stringify({
+                                    groupId: selectedGroup.id,
+                                    email: inviteEmail,
+                                  }),
+                                })
+                                setInviteEmail("")
+                              }, "Invitation envoyée par e-mail.")
+                            }}
+                          >
+                            <Input
+                              type="email"
+                              value={inviteEmail}
+                              onChange={(event) =>
+                                setInviteEmail(event.target.value)
+                              }
+                              placeholder="adresse@exemple.fr"
+                              className="w-52"
+                            />
+                            <Button size="sm" variant="outline">
+                              <UserPlus /> Inviter
+                            </Button>
+                          </form>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            disabled={busy}
+                            onClick={() => setGroupToDelete(selectedGroup)}
+                          >
+                            <Trash2 /> Supprimer
                           </Button>
-                        </form>
+                        </>
                       ) : null}
                     </div>
                     <ScrollArea className="min-h-0 flex-1">
@@ -786,6 +857,37 @@ export function CollaborationDialog({
           <TabsContent value="notifications" className="min-h-0 flex-1 p-4">
             <ScrollArea className="h-full">
               <div className="mx-auto grid max-w-3xl gap-2 pb-4">
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-muted/25 p-3">
+                  <div>
+                    <p className="text-sm font-medium">
+                      Notifications navigateur
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {browserNotificationPermission === "granted"
+                        ? "Activées sur cet appareil. Le bouton de test déclenche une notification système."
+                        : browserNotificationPermission === "denied"
+                          ? "Bloquées dans les réglages du navigateur. Autorisez Lumy dans les paramètres du site."
+                          : browserNotificationPermission === "default"
+                            ? "Autorisation non demandée."
+                            : "Non prises en charge par ce navigateur."}
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={browserNotificationPermission === "unsupported"}
+                    onClick={() =>
+                      void (browserNotificationPermission === "granted"
+                        ? sendTestBrowserNotification()
+                        : requestBrowserNotifications())
+                    }
+                  >
+                    <Bell />
+                    {browserNotificationPermission === "granted"
+                      ? "Tester"
+                      : "Activer"}
+                  </Button>
+                </div>
                 {notifications.some((item) => !item.readAt) ? (
                   <Button
                     className="mb-2 justify-self-end"
@@ -838,6 +940,65 @@ export function CollaborationDialog({
           </TabsContent>
         </Tabs>
       </DialogContent>
+
+      <Dialog
+        open={Boolean(pendingGroupInviteToken)}
+        onOpenChange={(isOpen) => {
+          if (!isOpen) setPendingGroupInviteToken(null)
+        }}
+      >
+        <DialogContent className="sm:max-w-[440px]">
+          <DialogHeader>
+            <DialogTitle className="font-editorial text-2xl">
+              Invitation de groupe
+            </DialogTitle>
+            <DialogDescription>
+              Voulez-vous rejoindre cette conversation de groupe dans Lumy ?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={busy}
+              onClick={() => void answerGroupInvite(false)}
+            >
+              Refuser
+            </Button>
+            <Button
+              disabled={busy}
+              onClick={() => void answerGroupInvite(true)}
+            >
+              <Check data-icon="inline-start" />
+              Accepter
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <ConfirmDeleteDialog
+        open={Boolean(groupToDelete)}
+        onOpenChange={(isOpen) => {
+          if (!isOpen) setGroupToDelete(null)
+        }}
+        title="Supprimer ce groupe ?"
+        description={
+          groupToDelete
+            ? `« ${groupToDelete.title} » et ses messages seront supprimés définitivement.`
+            : "Ce groupe sera supprimé définitivement."
+        }
+        onConfirm={async () => {
+          const group = groupToDelete
+          if (!group) return
+          await action(async () => {
+            await api(`/api/groups?groupId=${encodeURIComponent(group.id)}`, {
+              method: "DELETE",
+            })
+            setSelectedGroupId("")
+            setGroupMessages([])
+          }, "Groupe supprimé.")
+          setGroupToDelete(null)
+        }}
+      />
     </Dialog>
   )
 }

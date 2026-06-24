@@ -141,6 +141,25 @@ export function normalizeChatState(
     state.webSearchMode,
     state.webSearch
   )
+  const conversationsWithConfirmedSources = state.conversations.map(
+    (conversation) => ({
+      ...conversation,
+      messages: conversation.messages.map((message) => {
+        if (message.webSearchExecuted && message.webSearchConfirmed !== true) {
+          return { ...message, webSearchExecuted: false, webSources: [] }
+        }
+        return message
+      }),
+    })
+  )
+  const sourcesChanged = conversationsWithConfirmedSources.some(
+    (conversation, conversationIndex) =>
+      conversation.messages.some(
+        (message, messageIndex) =>
+          message !==
+          state.conversations[conversationIndex]?.messages[messageIndex]
+      )
+  )
   const emptyConversations = state.conversations.filter(
     (conversation) =>
       conversation.messages.length === 0 &&
@@ -149,10 +168,12 @@ export function normalizeChatState(
   if (emptyConversations.length < 2) {
     return reflection === state.reflection &&
       autoMemory === state.autoMemory &&
-      webSearchMode === state.webSearchMode
+      webSearchMode === state.webSearchMode &&
+      !sourcesChanged
       ? state
       : {
           ...state,
+          conversations: conversationsWithConfirmedSources,
           reflection,
           autoMemory,
           webSearchMode,
@@ -164,9 +185,12 @@ export function normalizeChatState(
     (conversation) => conversation.id === state.activeConversationId
   )
   const keptEmptyId = activeEmpty?.id ?? emptyConversations[0].id
-  const conversations = state.conversations.filter(
+  const emptyConversationIds = new Set(
+    emptyConversations.map((conversation) => conversation.id)
+  )
+  const conversations = conversationsWithConfirmedSources.filter(
     (conversation) =>
-      !emptyConversations.includes(conversation) ||
+      !emptyConversationIds.has(conversation.id) ||
       conversation.id === keptEmptyId
   )
   return {
@@ -672,7 +696,10 @@ export function useChatStore(userId: string) {
           throw new Error(payload.error ?? "Envoi impossible.")
         setState((current) => ({
           ...current,
-          files: [...current.files, ...payload.files!],
+          files: [
+            ...current.files,
+            ...payload.files!.map((file) => ({ ...file, pending: true })),
+          ],
         }))
         toast.success(
           `${payload.files.length} fichier${payload.files.length > 1 ? "s" : ""} ajouté${payload.files.length > 1 ? "s" : ""}`
@@ -768,9 +795,13 @@ export function useChatStore(userId: string) {
   )
 
   const sendMessage = useCallback(
-    async (content: string, referencedConversationId?: string) => {
+    async (
+      content: string,
+      referencedConversationId?: string,
+      referencedFileIds: string[] = []
+    ) => {
       const trimmed = content.trim()
-      if (!trimmed || isGenerating) return
+      if (isGenerating) return
       if (!state.selectedModel) {
         toast.error(
           "Aucun modèle n’a été détecté. Configurez une clé API pour commencer."
@@ -779,6 +810,35 @@ export function useChatStore(userId: string) {
       }
 
       const conversationId = activeConversation?.id ?? uid()
+      const conversationFiles = state.files.filter(
+        (file) => file.conversationId === conversationId
+      )
+      const attachedFileIds = Array.from(
+        new Set([
+          ...conversationFiles
+            .filter((file) => file.pending)
+            .map((file) => file.id),
+          ...referencedFileIds.filter((id) =>
+            conversationFiles.some((file) => file.id === id)
+          ),
+        ])
+      ).slice(0, 10)
+      const attachedFiles = attachedFileIds.flatMap((id) => {
+        const file = conversationFiles.find((item) => item.id === id)
+        return file
+          ? [
+              {
+                id: file.id,
+                name: file.name,
+                size: file.size,
+                type: file.type,
+              },
+            ]
+          : []
+      })
+      const effectiveContent =
+        trimmed || (attachedFiles.length ? "Analyse les fichiers joints." : "")
+      if (!effectiveContent) return
       const persistedReferenceId = activeConversation?.messages
         .slice()
         .reverse()
@@ -793,8 +853,9 @@ export function useChatStore(userId: string) {
       const userMessage: ChatMessage = {
         id: uid(),
         role: "user",
-        content: trimmed,
+        content: effectiveContent,
         createdAt: now(),
+        files: attachedFiles.length ? attachedFiles : undefined,
         reference: referencedConversation
           ? {
               conversationId: referencedConversation.id,
@@ -820,15 +881,23 @@ export function useChatStore(userId: string) {
         const existing = current.conversations.some(
           (conversation) => conversation.id === conversationId
         )
+        const nextFiles = current.files.map((file) =>
+          attachedFileIds.includes(file.id)
+            ? { ...file, pending: false, messageId: userMessage.id }
+            : file
+        )
         if (!existing) {
           const createdAt = now()
           return {
             ...current,
             activeConversationId: conversationId,
+            files: nextFiles,
             conversations: [
               {
                 id: conversationId,
-                title: trimmed.slice(0, 46) + (trimmed.length > 46 ? "…" : ""),
+                title:
+                  effectiveContent.slice(0, 46) +
+                  (effectiveContent.length > 46 ? "…" : ""),
                 createdAt,
                 updatedAt: createdAt,
                 messages: [...messages, assistantMessage],
@@ -837,15 +906,20 @@ export function useChatStore(userId: string) {
             ],
           }
         }
-        return updateConversation(current, conversationId, (conversation) => ({
-          ...conversation,
-          title:
-            conversation.messages.length === 0
-              ? trimmed.slice(0, 46) + (trimmed.length > 46 ? "…" : "")
-              : conversation.title,
-          updatedAt: now(),
-          messages: [...messages, assistantMessage],
-        }))
+        return updateConversation(
+          { ...current, files: nextFiles },
+          conversationId,
+          (conversation) => ({
+            ...conversation,
+            title:
+              conversation.messages.length === 0
+                ? effectiveContent.slice(0, 46) +
+                  (effectiveContent.length > 46 ? "…" : "")
+                : conversation.title,
+            updatedAt: now(),
+            messages: [...messages, assistantMessage],
+          })
+        )
       })
       setIsGenerating(true)
       const controller = new AbortController()
@@ -908,9 +982,7 @@ export function useChatStore(userId: string) {
                 state.webSearch
               ),
             },
-            fileIds: state.files
-              .filter((file) => file.conversationId === conversationId)
-              .map((file) => file.id),
+            fileIds: attachedFileIds,
           }),
         })
 
@@ -1108,9 +1180,9 @@ export function useChatStore(userId: string) {
                     responseTimeMs,
                     reasoningTimeMs,
                     usedMemoryIds: finalMetadata.usedMemoryIds,
-                    webSearchExecuted:
-                      webSearchExecuted || webSources.length > 0,
-                    webSources,
+                    webSearchExecuted,
+                    webSearchConfirmed: webSearchExecuted,
+                    webSources: webSearchExecuted ? webSources : [],
                     content:
                       finalMetadata.content ||
                       (finalReasoning

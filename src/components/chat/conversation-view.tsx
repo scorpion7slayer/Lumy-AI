@@ -15,6 +15,7 @@ import {
   Copy,
   Expand,
   ExternalLink,
+  FileText,
   FileUp,
   Globe2,
   Link2,
@@ -25,6 +26,7 @@ import {
   Search,
   Shuffle,
   Square,
+  X,
 } from "lucide-react"
 import type {
   ChatMessage,
@@ -32,6 +34,7 @@ import type {
   Conversation,
   MemoryItem,
   ReflectionLevel,
+  SessionFile,
   WebSearchMode,
 } from "@/lib/chat-types"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -87,6 +90,52 @@ function formatDuration(milliseconds: number) {
   return `${(milliseconds / 1_000).toLocaleString("fr-FR", {
     maximumFractionDigits: 1,
   })} s`
+}
+
+function formatFileSize(bytes: number) {
+  if (bytes < 1_024) return `${bytes} o`
+  if (bytes < 1024 * 1024)
+    return `${(bytes / 1_024).toLocaleString("fr-FR", {
+      maximumFractionDigits: 1,
+    })} Ko`
+  return `${(bytes / (1024 * 1024)).toLocaleString("fr-FR", {
+    maximumFractionDigits: 1,
+  })} Mo`
+}
+
+function FileReferenceChip({
+  file,
+  onRemove,
+  removable = false,
+  motion = false,
+}: {
+  file: Pick<SessionFile, "id" | "name" | "size" | "type">
+  onRemove?: () => void
+  removable?: boolean
+  motion?: boolean
+}) {
+  return (
+    <span
+      data-file-chip={motion ? "composer" : undefined}
+      className="inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-lg border border-border bg-muted/45 px-2 py-1 text-xs text-muted-foreground"
+    >
+      <FileText className="size-3.5 shrink-0" />
+      <span className="min-w-0 truncate" title={file.name}>
+        {file.name}
+      </span>
+      <span className="shrink-0 text-[11px]">{formatFileSize(file.size)}</span>
+      {removable ? (
+        <button
+          type="button"
+          className="grid size-5 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          onClick={onRemove}
+          aria-label={`Retirer ${file.name}`}
+        >
+          <X className="size-3" />
+        </button>
+      ) : null}
+    </span>
+  )
 }
 
 function RichText({
@@ -367,6 +416,13 @@ const UserMessage = memo(function UserMessage({
             </span>
           </span>
         ) : null}
+        {message.files?.length ? (
+          <div className="mb-3 flex flex-wrap gap-1.5">
+            {message.files.map((file) => (
+              <FileReferenceChip key={file.id} file={file} />
+            ))}
+          </div>
+        ) : null}
         <p className="text-[15px] leading-7 whitespace-pre-wrap">
           {message.content}
         </p>
@@ -413,6 +469,8 @@ export function ConversationView({
   onSend,
   onStop,
   onAddFiles,
+  onRemoveFile,
+  files,
   userName,
   userId,
 }: {
@@ -427,9 +485,15 @@ export function ConversationView({
   reflection: ReflectionLevel
   onWebSearchChange: (value: WebSearchMode) => void
   onReflectionChange: (value: ReflectionLevel) => void
-  onSend: (content: string, referencedConversationId?: string) => void
+  onSend: (
+    content: string,
+    referencedConversationId?: string,
+    referencedFileIds?: string[]
+  ) => void
   onStop: () => void
   onAddFiles: (files: FileList | null) => void
+  onRemoveFile: (id: string) => void
+  files: SessionFile[]
   userName: string
   userId?: string
 }) {
@@ -439,10 +503,14 @@ export function ConversationView({
   const [atBottom, setAtBottom] = useState(true)
   const [draggingFiles, setDraggingFiles] = useState(false)
   const [selectedReferenceId, setSelectedReferenceId] = useState<string>()
+  const [referencedFileIds, setReferencedFileIds] = useState<string[]>([])
+  const [fileReferenceOpen, setFileReferenceOpen] = useState(false)
   const [visibleMessageCount, setVisibleMessageCount] = useState(80)
   const [aboutOpen, setAboutOpen] = useState(false)
   const [changelogOpen, setChangelogOpen] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const composerFilesRef = useRef<HTMLDivElement>(null)
+  const fileChipMotionRef = useRef<{ revert: () => void } | null>(null)
   const stickToBottomRef = useRef(true)
   const dragDepthRef = useRef(0)
   const messages = conversation?.messages ?? []
@@ -462,6 +530,25 @@ export function ConversationView({
   const selectedReference = referenceOptions.find(
     (candidate) => candidate.id === selectedReferenceId
   )
+  const pendingFiles = files.filter((file) => file.pending)
+  const sentFiles = files.filter((file) => !file.pending)
+  const referencedFiles = referencedFileIds.flatMap((id) => {
+    const file = files.find((item) => item.id === id)
+    return file ? [file] : []
+  })
+  const mentionQuery = (() => {
+    const match = /(?:^|\s)@([^\n@]*)$/u.exec(draft)
+    return match ? match[1].trim().toLocaleLowerCase("fr") : null
+  })()
+  const fileReferenceOptions =
+    mentionQuery === null
+      ? []
+      : sentFiles
+          .filter((file) => !referencedFileIds.includes(file.id))
+          .filter((file) =>
+            file.name.toLocaleLowerCase("fr").includes(mentionQuery)
+          )
+          .slice(0, 6)
   const reasoningLevels = model?.reasoningLevels ?? []
   const initials =
     userName
@@ -499,6 +586,8 @@ export function ConversationView({
 
   useEffect(() => {
     setVisibleMessageCount(80)
+    setReferencedFileIds([])
+    setFileReferenceOpen(false)
     setSelectedReferenceId(
       conversation?.messages
         .slice()
@@ -516,6 +605,35 @@ export function ConversationView({
     return () => cancelAnimationFrame(frame)
   }, [messages])
 
+  useEffect(() => {
+    const element = composerFilesRef.current
+    fileChipMotionRef.current?.revert()
+    fileChipMotionRef.current = null
+    if (!element || (!pendingFiles.length && !referencedFiles.length)) return
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
+    let cancelled = false
+    void import("animejs").then(({ animate, createScope, stagger }) => {
+      if (cancelled || !composerFilesRef.current) return
+      fileChipMotionRef.current = createScope({ root: composerFilesRef }).add(
+        () => {
+          animate("[data-file-chip='composer']", {
+            opacity: [0, 1],
+            y: [6, 0],
+            scale: [0.98, 1],
+            delay: stagger(30),
+            duration: 220,
+            ease: "out(3)",
+          })
+        }
+      )
+    })
+    return () => {
+      cancelled = true
+      fileChipMotionRef.current?.revert()
+      fileChipMotionRef.current = null
+    }
+  }, [pendingFiles.length, referencedFiles.length])
+
   const handleScroll = () => {
     const element = scrollRef.current
     if (!element) return
@@ -526,12 +644,27 @@ export function ConversationView({
     setAtBottom(isAtBottom)
   }
 
+  const addReferencedFile = (file: SessionFile) => {
+    setReferencedFileIds((current) =>
+      current.includes(file.id) ? current : [...current, file.id]
+    )
+    const atIndex = draft.lastIndexOf("@")
+    setDraft((current) => {
+      const index = current.lastIndexOf("@")
+      if (index < 0) return `${current} @${file.name} `
+      return `${current.slice(0, index)}@${file.name} `
+    })
+    if (atIndex >= 0) setFileReferenceOpen(false)
+  }
+
   const submit = () => {
-    if (!draft.trim() || isGenerating) return
+    if ((!draft.trim() && pendingFiles.length === 0) || isGenerating) return
     stickToBottomRef.current = true
     setAtBottom(true)
-    onSend(draft, selectedReferenceId)
+    onSend(draft, selectedReferenceId, referencedFileIds)
     setDraft("")
+    setReferencedFileIds([])
+    setFileReferenceOpen(false)
     setExpanded(false)
   }
 
@@ -692,10 +825,43 @@ export function ConversationView({
         ) : null}
         <div className="mx-auto w-full max-w-[900px]">
           <div className="rounded-2xl border border-border bg-card p-3 shadow-[0_10px_32px_rgba(49,45,36,0.08)] focus-within:border-primary/50">
+            {pendingFiles.length || referencedFiles.length ? (
+              <div
+                ref={composerFilesRef}
+                className="mb-2 flex flex-wrap gap-1.5"
+              >
+                {pendingFiles.map((file) => (
+                  <FileReferenceChip
+                    key={file.id}
+                    file={file}
+                    removable
+                    motion
+                    onRemove={() => onRemoveFile(file.id)}
+                  />
+                ))}
+                {referencedFiles.map((file) => (
+                  <FileReferenceChip
+                    key={file.id}
+                    file={file}
+                    removable
+                    motion
+                    onRemove={() =>
+                      setReferencedFileIds((current) =>
+                        current.filter((id) => id !== file.id)
+                      )
+                    }
+                  />
+                ))}
+              </div>
+            ) : null}
             <div className="flex items-start gap-2">
               <Textarea
                 value={draft}
-                onChange={(event) => setDraft(event.target.value)}
+                onChange={(event) => {
+                  const value = event.target.value
+                  setDraft(value)
+                  setFileReferenceOpen(/(?:^|\s)@[^\n@]*$/u.test(value))
+                }}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && !event.shiftKey) {
                     event.preventDefault()
@@ -725,6 +891,27 @@ export function ConversationView({
                 <TooltipContent>Agrandir</TooltipContent>
               </Tooltip>
             </div>
+            {fileReferenceOpen && fileReferenceOptions.length ? (
+              <div className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-sm">
+                <p className="px-2 py-1 text-xs font-medium text-muted-foreground">
+                  Référencer un fichier
+                </p>
+                {fileReferenceOptions.map((file) => (
+                  <button
+                    key={file.id}
+                    type="button"
+                    className="flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
+                    onClick={() => addReferencedFile(file)}
+                  >
+                    <FileText className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1 truncate">{file.name}</span>
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {formatFileSize(file.size)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <Button variant="outline" size="icon" asChild>
                 <label aria-label="Joindre des fichiers">
@@ -734,7 +921,10 @@ export function ConversationView({
                     multiple
                     accept={CHAT_FILE_ACCEPT}
                     className="sr-only"
-                    onChange={(event) => onAddFiles(event.target.files)}
+                    onChange={(event) => {
+                      onAddFiles(event.target.files)
+                      event.currentTarget.value = ""
+                    }}
                   />
                 </label>
               </Button>
@@ -742,16 +932,23 @@ export function ConversationView({
                 <DropdownMenuTrigger asChild>
                   <Button
                     variant="outline"
+                    size="icon"
                     disabled={!webSearchAvailable}
-                    aria-label="Mode de recherche web"
+                    aria-label={
+                      webSearchMode === "off"
+                        ? "Recherche web désactivée"
+                        : webSearchMode === "on"
+                          ? "Recherche web activée"
+                          : "Recherche web automatique"
+                    }
                   >
-                    <Search data-icon="inline-start" />
-                    {webSearchMode === "off"
-                      ? "Recherche web désactivée"
-                      : webSearchMode === "on"
-                        ? "Recherche web activée"
-                        : "Recherche web auto"}
-                    <ChevronDown data-icon="inline-end" />
+                    {webSearchMode === "off" ? (
+                      <Search />
+                    ) : webSearchMode === "on" ? (
+                      <Globe2 />
+                    ) : (
+                      <Shuffle />
+                    )}
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent className="w-64">
@@ -795,15 +992,18 @@ export function ConversationView({
                     variant={selectedReference ? "secondary" : "outline"}
                     disabled={referenceOptions.length === 0}
                     aria-label="Référencer une conversation"
-                    className="max-w-60"
+                    className="max-w-60 max-sm:w-8 max-sm:px-0"
                   >
                     <MessagesSquare data-icon="inline-start" />
-                    <span className="truncate">
+                    <span className="truncate max-sm:sr-only">
                       {selectedReference
                         ? selectedReference.title
                         : "Référencer un chat"}
                     </span>
-                    <ChevronDown data-icon="inline-end" />
+                    <ChevronDown
+                      data-icon="inline-end"
+                      className="max-sm:hidden"
+                    />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent className="w-72">
@@ -841,7 +1041,7 @@ export function ConversationView({
                   >
                     <SelectTrigger
                       size="sm"
-                      className="w-[142px]"
+                      className="w-[142px] max-sm:min-w-0 max-sm:flex-1"
                       aria-label="Niveau de réflexion"
                     >
                       <SelectValue />
@@ -862,7 +1062,7 @@ export function ConversationView({
                   </Select>
                 ) : (
                   <div
-                    className="flex h-8 min-w-[142px] items-center rounded-md border border-border bg-muted/35 px-3 text-xs text-muted-foreground"
+                    className="flex h-8 min-w-[142px] items-center rounded-md border border-border bg-muted/35 px-3 text-xs text-muted-foreground max-sm:min-w-0 max-sm:flex-1"
                     aria-label="Niveau de réflexion"
                   >
                     {reasoningLevels.length === 1
@@ -890,7 +1090,10 @@ export function ConversationView({
                   <Button
                     size="icon"
                     onClick={submit}
-                    disabled={!draft.trim() || !modelAvailable}
+                    disabled={
+                      (!draft.trim() && pendingFiles.length === 0) ||
+                      !modelAvailable
+                    }
                     aria-label="Envoyer le message"
                   >
                     <ArrowUp />
@@ -903,18 +1106,20 @@ export function ConversationView({
             <span>
               Lumy peut se tromper. Vérifiez les informations importantes.
             </span>
-            <span aria-hidden="true">·</span>
-            <span>© 2026 Lumy AI By Zyranex</span>
+            <span className="max-sm:hidden" aria-hidden="true">
+              ·
+            </span>
+            <span className="max-sm:hidden">© 2026 Lumy AI By Zyranex</span>
             <button
               type="button"
-              className="underline-offset-2 hover:underline"
+              className="underline-offset-2 hover:underline max-sm:hidden"
               onClick={() => setAboutOpen(true)}
             >
               Crédits
             </button>
             <button
               type="button"
-              className="underline-offset-2 hover:underline"
+              className="underline-offset-2 hover:underline max-sm:hidden"
               onClick={() => setChangelogOpen(true)}
             >
               Nouveautés
@@ -947,7 +1152,11 @@ export function ConversationView({
             </Button>
             <Button
               onClick={submit}
-              disabled={!draft.trim() || isGenerating || !modelAvailable}
+              disabled={
+                (!draft.trim() && pendingFiles.length === 0) ||
+                isGenerating ||
+                !modelAvailable
+              }
             >
               <ArrowUp data-icon="inline-start" />
               Envoyer
@@ -1021,14 +1230,29 @@ export function ConversationView({
           <div className="space-y-4">
             <section className="rounded-xl border border-border p-4">
               <p className="text-xs font-medium tracking-wide text-primary uppercase">
-                22 juin 2026
+                24 juin 2026
               </p>
-              <h3 className="mt-1 font-medium">Une expérience plus fluide</h3>
+              <h3 className="mt-1 font-medium">
+                Interface et références plus fiables
+              </h3>
               <ul className="mt-2 list-disc space-y-1 pl-5 text-sm leading-6 text-muted-foreground">
-                <li>Recherche web avec modes désactivé, activé et auto.</li>
-                <li>Glisser-déposer de fichiers directement dans le chat.</li>
-                <li>Référence d’une ancienne discussion dans une nouvelle.</li>
-                <li>Affichage progressif des très longues conversations.</li>
+                <li>
+                  Recherche web verrouillée quand elle est désactivée, avec
+                  sources affichées uniquement si une recherche a vraiment été
+                  utilisée.
+                </li>
+                <li>
+                  Fichiers ajoutés au-dessus de la saisie avant l’envoi, puis
+                  liés au message comme référence.
+                </li>
+                <li>Références de fichiers avec @ dans la zone de texte.</li>
+                <li>
+                  Notifications navigateur avec autorisation et test système.
+                </li>
+                <li>
+                  Historique, groupes, sélecteur de modèle et interface mobile
+                  ajustés pour les titres longs.
+                </li>
               </ul>
             </section>
             <p className="text-xs leading-5 text-muted-foreground">

@@ -56,6 +56,7 @@ export function ModelPicker({
   const [priceFilter, setPriceFilter] = useState<PriceFilter>("all")
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading")
   const initialSelectedModel = useRef(selectedModel)
+  const resultListRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -114,6 +115,28 @@ export function ModelPicker({
         ? "La clé configurée n’a retourné aucun modèle utilisable."
         : "Ajoutez une clé API OpenRouter, Kilo Code, OpenCode ou NVIDIA NIM pour commencer."
 
+  useEffect(() => {
+    if (!open || status !== "ready" || !filtered.length) return
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
+
+    let cancelled = false
+    void import("animejs").then(({ animate, stagger }) => {
+      if (cancelled || !resultListRef.current) return
+      animate(resultListRef.current.querySelectorAll("[data-model-row]"), {
+        opacity: [0, 1],
+        y: [8, 0],
+        filter: ["blur(3px)", "blur(0px)"],
+        delay: stagger(22),
+        duration: 260,
+        ease: "out(3)",
+      })
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [filtered.length, open, status])
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -145,7 +168,7 @@ export function ModelPicker({
       <PopoverContent
         align="end"
         sideOffset={12}
-        className="w-[min(480px,calc(100vw-24px))] p-0"
+        className="w-[min(520px,calc(100vw-24px))] max-w-[calc(100vw-24px)] overflow-hidden p-0"
       >
         {status === "loading" ? (
           <div className="flex min-h-48 flex-col items-center justify-center gap-3 px-6 text-center">
@@ -178,31 +201,34 @@ export function ModelPicker({
                 />
               </div>
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <Select
-                  value={providerFilter}
-                  onValueChange={(value) =>
-                    setProviderFilter(value as ProviderFilter)
-                  }
-                >
-                  <SelectTrigger
-                    className="min-w-48 flex-1"
-                    aria-label="Filtrer par fournisseur"
+                <div className="min-w-0 flex-1">
+                  <Select
+                    value={providerFilter}
+                    onValueChange={(value) =>
+                      setProviderFilter(value as ProviderFilter)
+                    }
                   >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent align="start">
-                    <SelectItem value="all">Tous les fournisseurs</SelectItem>
-                    {providers.map((provider) => (
-                      <SelectItem key={provider} value={provider}>
-                        {providerLabels[provider]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                    <SelectTrigger
+                      className="w-full min-w-0"
+                      aria-label="Filtrer par fournisseur"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent align="start">
+                      <SelectItem value="all">Tous les fournisseurs</SelectItem>
+                      {providers.map((provider) => (
+                        <SelectItem key={provider} value={provider}>
+                          {providerLabels[provider]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
                 <ToggleGroup
                   type="single"
                   variant="outline"
                   value={priceFilter}
+                  className="shrink-0"
                   onValueChange={(value) =>
                     value && setPriceFilter(value as PriceFilter)
                   }
@@ -214,54 +240,54 @@ export function ModelPicker({
               </div>
             </div>
 
-            <ScrollArea className="h-[360px]">
+            <ScrollArea className="model-picker-scroll h-[360px] w-full max-w-full">
               {filtered.length ? (
-                <div className="p-2">
+                <div ref={resultListRef} className="w-full min-w-0 p-2">
                   {filtered.map((model) => {
                     const selected =
                       model.id === selectedModel?.id &&
                       model.provider === selectedModel.provider
+                    const modelDescription =
+                      model.provider === "lumy"
+                        ? "Choix intelligent avec basculement automatique"
+                        : model.owner
+                    const modelDetail = `${model.providerLabel} · ${modelDescription} · ${formatTokenCount(model.contextWindow)} de contexte`
                     return (
                       <button
                         key={`${model.provider}:${model.id}`}
+                        data-model-row="true"
                         type="button"
                         onClick={() => {
                           onSelect(model)
                           setOpen(false)
                         }}
                         className={cn(
-                          "flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring",
+                          "flex w-full max-w-full min-w-0 items-center gap-3 overflow-hidden rounded-lg px-3 py-3 text-left transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring",
                           selected && "bg-accent"
                         )}
                       >
-                        <ModelIcon model={model} />
+                        <ModelIcon model={model} className="shrink-0" />
                         <span className="min-w-0 flex-1">
-                          <span className="flex items-center gap-2">
-                            <span className="truncate text-sm font-medium">
+                          <span className="flex min-w-0 flex-wrap items-center gap-2">
+                            <span className="min-w-0 truncate text-sm font-medium">
                               {model.name}
                             </span>
                             {model.isFree ? (
-                              <Badge variant="secondary">Gratuit</Badge>
+                              <Badge variant="secondary" className="shrink-0">
+                                Gratuit
+                              </Badge>
                             ) : null}
                             {model.recommended ? (
-                              <Badge variant="outline">Recommandé</Badge>
+                              <Badge variant="outline" className="shrink-0">
+                                Recommandé
+                              </Badge>
                             ) : null}
                           </span>
-                          <span className="mt-0.5 flex items-center gap-1.5 truncate text-xs text-muted-foreground">
-                            <span className="shrink-0">
-                              {model.providerLabel}
-                            </span>
-                            <span aria-hidden="true">·</span>
-                            <span className="truncate">
-                              {model.provider === "lumy"
-                                ? "Choix intelligent avec basculement automatique"
-                                : model.owner}
-                            </span>
-                            <span aria-hidden="true">·</span>
-                            <span className="shrink-0">
-                              {formatTokenCount(model.contextWindow)} de
-                              contexte
-                            </span>
+                          <span
+                            className="mt-0.5 block truncate text-xs text-muted-foreground"
+                            title={modelDetail}
+                          >
+                            {modelDetail}
                           </span>
                         </span>
                         {selected ? (

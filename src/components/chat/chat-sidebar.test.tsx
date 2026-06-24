@@ -44,10 +44,13 @@ describe("barre latérale des discussions", () => {
         onTogglePinned={vi.fn()}
         onOpenMemory={vi.fn()}
         onOpenLibrary={vi.fn()}
+        onOpenSupport={vi.fn()}
+        onOpenNotifications={vi.fn()}
         onOpenSettings={vi.fn()}
         onOpenFeedback={vi.fn()}
         onOpenAdmin={vi.fn()}
         onLogout={vi.fn()}
+        unreadNotifications={0}
         user={{
           id: "user-1",
           email: "user@example.test",

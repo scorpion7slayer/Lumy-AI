@@ -266,6 +266,7 @@ export const Route = createFileRoute("/api/chat")({
             reflection?: unknown
             reasoningEnabled?: unknown
             webSearch?: unknown
+            webSearchMode?: unknown
           }
           fileIds?: unknown
           conversationId?: unknown
@@ -422,11 +423,15 @@ export const Route = createFileRoute("/api/chat")({
         }
         const firstProviderConfig = getProviderConfig(firstRoutedModel.provider)
         const webSearchMode =
-          preferences.webSearch === "auto"
-            ? "auto"
-            : preferences.webSearch === true
+          preferences.webSearchMode === "off" || preferences.webSearch === false
+            ? "disabled"
+            : preferences.webSearchMode === "on" ||
+                preferences.webSearch === true
               ? "enabled"
-              : "disabled"
+              : preferences.webSearchMode === "auto" ||
+                  preferences.webSearch === "auto"
+                ? "auto"
+                : "disabled"
         const webDecision =
           webSearchMode === "enabled" && webQuery
             ? {

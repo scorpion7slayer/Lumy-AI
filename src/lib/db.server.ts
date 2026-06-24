@@ -12,6 +12,8 @@ import type { EarlyAccessStatus } from "@/lib/auth-types"
 
 export type DatabaseRole = "user" | "admin" | "super_admin"
 
+const MODEL_AUTO_DISABLE_INCIDENT_THRESHOLD = 5
+
 export type DatabaseUser = {
   id: string
   email: string
@@ -1243,6 +1245,7 @@ export async function insertModelIncident(input: {
       [fingerprint]
     )
     const existing = existingRows.at(0)
+    let incidentId: string
     if (existing) {
       await connection.execute(
         `UPDATE lumy_model_incidents SET request_id = ?, user_id = ?,
@@ -1251,31 +1254,52 @@ export async function insertModelIncident(input: {
           last_occurred_at = CURRENT_TIMESTAMP(3) WHERE id = ?`,
         [normalized.requestId, input.userId, input.surfacedToUser, existing.id]
       )
-      return { id: existing.id }
+      incidentId = existing.id
+    } else {
+      const id = input.id ?? randomUUID()
+      await connection.execute(
+        `INSERT INTO lumy_model_incidents
+          (id, fingerprint, request_id, user_id, requested_provider,
+            requested_model, provider, model, http_status, failure_kind,
+            sanitized_detail, surfaced_to_user)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          id,
+          fingerprint,
+          normalized.requestId,
+          input.userId,
+          normalized.requestedProvider,
+          normalized.requestedModel,
+          normalized.provider,
+          normalized.model,
+          normalized.httpStatus,
+          normalized.failureKind,
+          normalized.sanitizedDetail,
+          input.surfacedToUser,
+        ]
+      )
+      incidentId = id
     }
-    const id = input.id ?? randomUUID()
-    await connection.execute(
-      `INSERT INTO lumy_model_incidents
-        (id, fingerprint, request_id, user_id, requested_provider,
-          requested_model, provider, model, http_status, failure_kind,
-          sanitized_detail, surfaced_to_user)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        id,
-        fingerprint,
-        normalized.requestId,
-        input.userId,
-        normalized.requestedProvider,
-        normalized.requestedModel,
-        normalized.provider,
-        normalized.model,
-        normalized.httpStatus,
-        normalized.failureKind,
-        normalized.sanitizedDetail,
-        input.surfacedToUser,
-      ]
+    const [countRows] = await connection.execute<
+      Array<RowDataPacket & { occurrence_count: number }>
+    >(
+      `SELECT COALESCE(SUM(occurrence_count), 0) AS occurrence_count
+        FROM lumy_model_incidents
+        WHERE provider = ? AND model = ? AND resolved_at IS NULL`,
+      [normalized.provider, normalized.model]
     )
-    return { id }
+    const occurrenceCount = Number(countRows.at(0)?.occurrence_count ?? 0)
+    if (occurrenceCount > MODEL_AUTO_DISABLE_INCIDENT_THRESHOLD) {
+      await connection.execute(
+        `INSERT INTO lumy_model_controls
+          (provider, model_id, model_scope_key, enabled, updated_by_user_id)
+          VALUES (?, ?, ?, FALSE, NULL)
+          ON DUPLICATE KEY UPDATE enabled = FALSE,
+            updated_by_user_id = NULL`,
+        [normalized.provider, normalized.model, normalized.model]
+      )
+    }
+    return { id: incidentId }
   })
 }
 
@@ -2057,6 +2081,31 @@ export async function listGroupChats(userId: string) {
     memberCount: Number(row.member_count),
     updatedAt: databaseDateToISOString(row.updated_at),
   }))
+}
+
+export async function deleteGroupChat(input: {
+  userId: string
+  groupId: string
+}) {
+  await ensureDatabaseSchema()
+  return withTransaction(async (connection) => {
+    const [rows] = await connection.execute<
+      Array<RowDataPacket & { role: "owner" | "member" }>
+    >(
+      `SELECT role FROM lumy_group_members
+        WHERE group_id = ? AND user_id = ? LIMIT 1 FOR UPDATE`,
+      [input.groupId, input.userId]
+    )
+    const membership = rows.at(0)
+    if (!membership) return { ok: false as const, reason: "not_found" }
+    if (membership.role !== "owner") {
+      return { ok: false as const, reason: "forbidden" }
+    }
+    await connection.execute("DELETE FROM lumy_group_chats WHERE id = ?", [
+      input.groupId,
+    ])
+    return { ok: true as const }
+  })
 }
 
 export async function createGroupInvitation(input: {
